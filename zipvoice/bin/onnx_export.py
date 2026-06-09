@@ -220,6 +220,7 @@ def export_text_encoder(
     model: OnnxTextModel,
     filename: str,
     opset_version: int = 13,
+    meta_data: dict | None = None,
 ) -> None:
     """Export the text encoder model to ONNX format.
 
@@ -251,15 +252,17 @@ def export_text_encoder(
             "prompt_tokens": {0: "N", 1: "T"},
             "text_condition": {0: "N", 1: "T"},
         },
+        dynamo=False,
     )
 
-    meta_data = {
-        "version": "1",
-        "model_author": "k2-fsa",
-        "comment": "ZipVoice text encoder",
-        "use_espeak": "1",
-        "use_pinyin": "1",
-    }
+    if meta_data is None:
+        meta_data = {
+            "version": "1",
+            "model_author": "k2-fsa",
+            "comment": "ZipVoice text encoder",
+            "use_espeak": "1",
+            "use_pinyin": "1",
+        }
     logging.info(f"meta_data: {meta_data}")
     add_meta_data(filename=filename, meta_data=meta_data)
 
@@ -307,6 +310,7 @@ def export_fm_decoder(
             "speech_condition": {0: "N", 1: "T"},
             "v": {0: "N", 1: "T"},
         },
+        dynamo=False,
     )
 
     meta_data = {

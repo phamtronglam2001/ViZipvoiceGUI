@@ -429,7 +429,9 @@ def generate_sentence_raw_evaluation(
     # Adjust wav volume if necessary
     if prompt_rms < target_rms:
         wav = wav * prompt_rms / target_rms
-    torchaudio.save(save_path, wav.cpu(), sample_rate=sampling_rate)
+    from zipvoice.utils.audio_io import save_audio
+
+    save_audio(save_path, wav.cpu(), sample_rate=sampling_rate)
 
     return metrics
 
@@ -637,7 +639,9 @@ def generate_sentence(
         "rtf_vocoder": rtf_vocoder,
     }
 
-    torchaudio.save(save_path, final_wav.cpu(), sample_rate=sampling_rate)
+    from zipvoice.utils.audio_io import save_audio
+
+    save_audio(save_path, final_wav.cpu(), sample_rate=sampling_rate)
     return metrics
 
 

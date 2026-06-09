@@ -16,17 +16,17 @@ from zipvoice.bin.infer_zipvoice import generate_sentence, get_vocoder
 from zipvoice.models.zipvoice import ZipVoice
 from zipvoice.tokenizer.tokenizer import SimpleTokenizer
 from zipvoice.utils.checkpoint import load_checkpoint
+from zipvoice.tokenizer.vi_normalizer import (  # noqa: F401
+    DEFAULT_PIPELINE,
+    cleanup_vietnamese_spacing,
+    normalize_text_pipeline,
+)
 from zipvoice.utils.feature import VocosFbank
 
 DEFAULT_REPO_ID = "contextboxai/ViZipvoice"
 DEFAULT_CHECKPOINT_NAME = "latest"
 CHECKPOINT_RE = re.compile(r"^checkpoint-(\d+)\.pt$")
 SENTENCE_SPLIT_PATTERN = re.compile(r"[^.?？。]+(?:[.?？。]+|$)", re.S)
-PUNCTUATION_NO_SPACE_BEFORE = r",.;:!?…%"
-OPENING_QUOTES_AND_BRACKETS = r"\(\[\{«“‘"
-CLOSING_QUOTES_AND_BRACKETS = r"\)\]\}»”’"
-
-
 def _resolve_device(device: Optional[Union[str, torch.device]] = None) -> torch.device:
     if device is not None:
         return torch.device(device)
@@ -127,45 +127,17 @@ def _resolve_local_config_path(model_dir: Path) -> Path:
     raise FileNotFoundError(f"No config.json or model.json file found in {model_dir}")
 
 
-def cleanup_vietnamese_spacing(text: str) -> str:
-    text = re.sub(r"\s+", " ", text.strip())
-    text = re.sub(
-        rf"\s+([{re.escape(PUNCTUATION_NO_SPACE_BEFORE)}])",
-        r"\1",
+def normalize_vietnamese_text(
+    text: str,
+    enabled: bool = True,
+    pipeline: Optional[list[str]] = None,
+) -> str:
+    """Normalize Vietnamese text for TTS using the configured pipeline."""
+    return normalize_text_pipeline(
         text,
+        pipeline if pipeline is not None else DEFAULT_PIPELINE,
+        enabled=enabled,
     )
-    text = re.sub(
-        rf"\s+([{CLOSING_QUOTES_AND_BRACKETS}])",
-        r"\1",
-        text,
-    )
-    text = re.sub(
-        rf"([{OPENING_QUOTES_AND_BRACKETS}])\s+",
-        r"\1",
-        text,
-    )
-    text = re.sub(
-        rf"([{re.escape(PUNCTUATION_NO_SPACE_BEFORE)}])"
-        rf"([^\s{CLOSING_QUOTES_AND_BRACKETS}])",
-        r"\1 \2",
-        text,
-    )
-    return text.strip()
-
-
-def normalize_vietnamese_text(text: str, enabled: bool = True) -> str:
-    if not enabled:
-        return text.strip()
-
-    try:
-        from soe_vinorm import normalize_text
-    except ImportError as exc:
-        raise RuntimeError(
-            "Vietnamese normalization requires soe-vinorm. "
-            "Install it with `pip install soe-vinorm`."
-        ) from exc
-
-    return cleanup_vietnamese_spacing(normalize_text(text))
 
 
 def split_text_into_sentences(text: str) -> list[str]:
@@ -290,7 +262,9 @@ def postprocess_audio_segments(
 
     combined = None
     for index, segment_path in enumerate(segment_paths):
-        audio, sr = torchaudio.load(str(segment_path))
+        from zipvoice.utils.audio_io import load_audio
+
+        audio, sr = load_audio(segment_path)
         if sr != sampling_rate:
             audio = torchaudio.functional.resample(audio, sr, sampling_rate)
 
@@ -314,7 +288,9 @@ def postprocess_audio_segments(
         fade_out_samples=fade_out_samples,
     )
     combined = combined.clamp(min=-1.0, max=1.0).cpu()
-    torchaudio.save(str(output_path), combined, sampling_rate)
+    from zipvoice.utils.audio_io import save_audio
+
+    save_audio(output_path, combined, sampling_rate)
 
 
 def wav_seconds(path: Union[str, Path]) -> float:
@@ -324,7 +300,9 @@ def wav_seconds(path: Union[str, Path]) -> float:
         info = sf.info(str(path))
         return float(info.frames) / float(info.samplerate)
     except Exception:
-        audio, sr = torchaudio.load(str(path))
+        from zipvoice.utils.audio_io import load_audio
+
+        audio, sr = load_audio(path)
         return float(audio.shape[-1]) / float(sr)
 
 
@@ -444,6 +422,7 @@ class ViZipVoiceTTS:
         remove_long_sil: bool = False,
         seed: Optional[int] = 666,
         normalize_vietnamese: bool = True,
+        normalize_pipeline: Optional[list[str]] = None,
         split_sentences: bool = True,
         crossfade_ms: int = 80,
         silence_ms: int = 180,
@@ -453,13 +432,16 @@ class ViZipVoiceTTS:
         if seed is not None and seed >= 0:
             fix_random_seed(int(seed))
 
+        norm_pipeline = normalize_pipeline if normalize_pipeline is not None else DEFAULT_PIPELINE
         prompt_text = normalize_vietnamese_text(
             prompt_text,
             enabled=normalize_vietnamese,
+            pipeline=norm_pipeline,
         )
         text = normalize_vietnamese_text(
             text,
             enabled=normalize_vietnamese,
+            pipeline=norm_pipeline,
         )
         target_sentences = split_text_into_sentences(text) if split_sentences else [text]
         if not target_sentences:

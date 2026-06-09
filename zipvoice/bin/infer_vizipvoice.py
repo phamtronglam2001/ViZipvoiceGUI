@@ -3,6 +3,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from zipvoice.tokenizer.vi_normalizer import build_normalize_pipeline
 from zipvoice.vizipvoice import DEFAULT_CHECKPOINT_NAME, DEFAULT_REPO_ID, ViZipVoiceTTS
 
 
@@ -46,13 +47,24 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-vietnamese-normalize",
         action="store_true",
-        help="Disable soe-vinorm normalization before inference.",
+        help="Disable Vietnamese text normalization before inference.",
+    )
+    parser.add_argument(
+        "--normalize-pipeline",
+        default=None,
+        help="Comma-separated normalizer steps, e.g. soe_vinorm,spacing,sea_g2p",
     )
     return parser
 
 
 def main() -> None:
     args = get_parser().parse_args()
+
+    norm_pipeline = None
+    if args.normalize_pipeline:
+        norm_pipeline = build_normalize_pipeline(
+            [s.strip() for s in args.normalize_pipeline.split(",") if s.strip()]
+        )
 
     tts = ViZipVoiceTTS(
         repo_id=args.repo_id,
@@ -79,6 +91,7 @@ def main() -> None:
         remove_long_sil=args.remove_long_sil,
         seed=args.seed,
         normalize_vietnamese=not args.no_vietnamese_normalize,
+        normalize_pipeline=norm_pipeline,
         split_sentences=not args.no_split_sentences,
         crossfade_ms=args.crossfade_ms,
         silence_ms=args.silence_ms,

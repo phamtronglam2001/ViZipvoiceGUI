@@ -277,13 +277,20 @@ class OnnxModel:
         self,
         text_encoder_path: str,
         fm_decoder_path: str,
-        num_thread: int = 1,
+        num_thread: int | None = None,
+        providers: list[str] | None = None,
     ):
-        session_opts = ort.SessionOptions()
-        session_opts.inter_op_num_threads = num_thread
-        session_opts.intra_op_num_threads = num_thread
+        from zipvoice.onnx_inference.runtime import (
+            default_onnx_threads,
+            make_session_options,
+            onnx_providers,
+        )
 
-        self.session_opts = session_opts
+        self.num_thread = (
+            default_onnx_threads() if num_thread is None else max(1, int(num_thread))
+        )
+        self.providers = providers or onnx_providers()
+        self.session_opts = make_session_options(self.num_thread)
 
         self.init_text_encoder(text_encoder_path)
         self.init_fm_decoder(fm_decoder_path)
@@ -292,14 +299,14 @@ class OnnxModel:
         self.text_encoder = ort.InferenceSession(
             model_path,
             sess_options=self.session_opts,
-            providers=["CPUExecutionProvider"],
+            providers=self.providers,
         )
 
     def init_fm_decoder(self, model_path: str):
         self.fm_decoder = ort.InferenceSession(
             model_path,
             sess_options=self.session_opts,
-            providers=["CPUExecutionProvider"],
+            providers=self.providers,
         )
         meta = self.fm_decoder.get_modelmeta().custom_metadata_map
         self.feat_dim = int(meta["feat_dim"])

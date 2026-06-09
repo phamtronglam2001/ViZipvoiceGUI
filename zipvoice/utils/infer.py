@@ -249,7 +249,9 @@ def load_prompt_wav(prompt_wav: str, sampling_rate: int):
         Loaded prompt waveform with target sampling rate,
         PyTorch tensor of shape (C, T)
     """
-    prompt_wav, prompt_sampling_rate = torchaudio.load(prompt_wav)
+    from zipvoice.utils.audio_io import load_audio
+
+    prompt_wav, prompt_sampling_rate = load_audio(prompt_wav)
 
     if prompt_sampling_rate != sampling_rate:
         resampler = torchaudio.transforms.Resample(

@@ -1,3 +1,29 @@
+================================================================================
+ViZipvoiceGUI — ADDITIONAL TERMS (NON-COMMERCIAL USE)
+================================================================================
+
+Copyright (c) 2026 Lam Pham (phamtronglam2001)
+
+This repository is a fork of ViZipVoice for local offline GUI, ONNX export,
+and audiobook-oriented workflows. In addition to the Apache License 2.0 text
+below, the following restriction applies to **this distribution** (code,
+scripts, and documentation in this repository):
+
+  You may NOT use this software, or any derivative work based on it, for
+  commercial purposes without prior written permission from the copyright
+  holder.
+
+  "Commercial purposes" means any use intended for or directed toward
+  commercial advantage or monetary compensation, including but not limited to
+  selling, licensing for a fee, paid applications, SaaS, and products funded
+  primarily by advertising.
+
+Upstream components remain under their original licenses (see README.md):
+ZipVoice (Apache-2.0), ViZipVoice model weights (Apache-2.0), Vocos (MIT), etc.
+Model weights and third-party libraries are not relicensed by this notice.
+
+================================================================================
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/

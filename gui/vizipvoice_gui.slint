@@ -1,0 +1,499 @@
+import { Button, CheckBox, ComboBox, LineEdit, ScrollView, SpinBox, TabWidget, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+component SectionTitle inherits Text {
+    text: "";
+    font-size: 13px;
+    font-weight: 600;
+    color: Theme.text-primary;
+}
+
+component FieldLabel inherits Text {
+    text: "";
+    font-size: 12px;
+    color: Theme.text-secondary;
+    vertical-alignment: center;
+}
+
+component PathField inherits HorizontalBox {
+    in-out property <string> value;
+    callback browse();
+    spacing: 6px;
+
+    LineEdit {
+        text <=> root.value;
+        horizontal-stretch: 1;
+    }
+    Button {
+        text: "…";
+        min-width: 36px;
+        clicked => { root.browse(); }
+    }
+}
+
+component LabeledPath inherits VerticalBox {
+    in property <string> label;
+    in-out property <string> value;
+    callback browse();
+    spacing: 4px;
+
+    FieldLabel { text: root.label; }
+    PathField {
+        value <=> root.value;
+        browse => { root.browse(); }
+    }
+}
+
+component LabeledLine inherits VerticalBox {
+    in property <string> label;
+    in-out property <string> value;
+    spacing: 4px;
+
+    FieldLabel { text: root.label; }
+    LineEdit { text <=> root.value; }
+}
+
+component LabeledSpin inherits VerticalBox {
+    in property <string> label;
+    in-out property <int> value;
+    in property <int> minimum: 0;
+    in property <int> maximum: 1000000;
+    spacing: 4px;
+
+    FieldLabel { text: root.label; }
+    SpinBox {
+        value <=> root.value;
+        minimum: root.minimum;
+        maximum: root.maximum;
+    }
+}
+
+component LabeledFloat inherits VerticalBox {
+    in property <string> label;
+    in-out property <string> value;
+    spacing: 4px;
+
+    FieldLabel { text: root.label; }
+    LineEdit { text <=> root.value; }
+}
+
+component Panel inherits Rectangle {
+    background: Theme.panel-bg;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.panel-border;
+}
+
+component ActionButton inherits Button {
+    in property <string> label;
+    text: root.label;
+    min-height: 34px;
+}
+
+export component MainWindow inherits Window {
+    title: "ViZipVoice — Local Test GUI";
+    preferred-width: 980px;
+    preferred-height: 760px;
+    background: Theme.window-bg;
+
+    // Theme
+    in-out property <bool> dark-mode <=> Theme.dark-mode;
+    callback toggle-theme();
+
+    // Shared state
+    in-out property <bool> busy: false;
+    in-out property <string> log-text: "Ready.\n";
+    in-out property <string> status-text: "Idle";
+
+    // Tab 0 — PyTorch inference
+    in-out property <string> infer-model-dir: "";
+    in-out property <string> infer-prompt-wav: "";
+    in-out property <string> infer-prompt-text: "Xin chào, đây là giọng mẫu của tôi.";
+    in-out property <string> infer-text: "ViZipVoice có thể tổng hợp giọng nói tiếng Việt từ một đoạn mẫu ngắn.";
+    in-out property <string> infer-output-wav: "output.wav";
+    in-out property <int> infer-num-step: 16;
+    in-out property <string> infer-guidance-scale: "1.0";
+    in-out property <string> infer-speed: "1.0";
+    in-out property <int> infer-seed: 666;
+    in-out property <bool> infer-no-vn-normalize: false;
+    in-out property <bool> infer-use-hf: true;
+    callback run-inference();
+    callback browse-infer(string);
+
+    // Tab 1 — ONNX inference
+    in-out property <string> onnx-model-dir: "models/onnx";
+    in-out property <bool> onnx-use-int4: true;
+    in-out property <string> onnx-prompt-wav: "";
+    in-out property <string> onnx-prompt-text: "Xin chào, đây là giọng mẫu của tôi.";
+    in-out property <string> onnx-text: "Đây là bản test ONNX của ViZipVoice.";
+    in-out property <string> onnx-output-wav: "output_onnx.wav";
+    in-out property <int> onnx-num-step: 16;
+    in-out property <string> onnx-guidance-scale: "1.0";
+    in-out property <string> onnx-speed: "1.0";
+    callback run-onnx-inference();
+    callback browse-onnx(string);
+
+    // Tab 2 — ONNX export
+    in-out property <string> export-model-dir: "models/ViZipvoice";
+    in-out property <string> export-onnx-dir: "models";
+    in-out property <string> export-checkpoint: "latest";
+    in-out property <string> export-vocoder-path: "";
+    in-out property <bool> export-quantize-4bit: true;
+    in-out property <bool> export-skip-vocos: false;
+    in-out property <bool> export-deploy-onnx-gui: false;
+    in-out property <string> export-deploy-path: "";
+    callback run-export();
+    callback browse-export(string);
+
+    // Tab 3 — Model download
+    in-out property <string> download-dir: "models/ViZipvoice";
+    in-out property <string> download-repo: "contextboxai/ViZipvoice";
+    callback run-download();
+    callback browse-download(string);
+
+    callback clear-log();
+
+    VerticalBox {
+        padding: Theme.pad;
+        spacing: 10px;
+
+        // Header
+        HorizontalBox {
+            spacing: 12px;
+            Text {
+                text: "ViZipVoice";
+                font-size: 20px;
+                font-weight: 700;
+                color: Theme.accent;
+                vertical-alignment: center;
+            }
+            Text {
+                text: "Local Slint GUI — test CLI & ONNX export";
+                font-size: 12px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            HorizontalBox {
+                spacing: 8px;
+                alignment: end;
+                Text {
+                    text: root.dark-mode ? "Dark" : "Light";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+                CheckBox {
+                    text: "";
+                    checked <=> root.dark-mode;
+                    toggled => { root.toggle-theme(); }
+                }
+            }
+        }
+
+        // Tabs
+        Panel {
+            vertical-stretch: 1;
+
+            TabWidget {
+                width: 100%;
+                height: 100%;
+
+                Tab {
+                    title: "TTS (PyTorch)";
+
+                    ScrollView {
+                        VerticalBox {
+                            padding: Theme.pad;
+                            spacing: 8px;
+
+                            SectionTitle { text: "Model"; }
+                            CheckBox {
+                                text: "Tải từ Hugging Face (bỏ chọn nếu dùng --model-dir local)";
+                                checked <=> root.infer-use-hf;
+                            }
+                            LabeledPath {
+                                label: "Model dir (local)";
+                                value <=> root.infer-model-dir;
+                                browse => { root.browse-infer("model-dir"); }
+                            }
+
+                            SectionTitle { text: "Input"; }
+                            LabeledPath {
+                                label: "Prompt WAV";
+                                value <=> root.infer-prompt-wav;
+                                browse => { root.browse-infer("prompt-wav"); }
+                            }
+                            LabeledLine {
+                                label: "Prompt text";
+                                value <=> root.infer-prompt-text;
+                            }
+                            LabeledLine {
+                                label: "Text to synthesize";
+                                value <=> root.infer-text;
+                            }
+                            LabeledPath {
+                                label: "Output WAV";
+                                value <=> root.infer-output-wav;
+                                browse => { root.browse-infer("output-wav"); }
+                            }
+
+                            SectionTitle { text: "Parameters"; }
+                            HorizontalBox {
+                                spacing: 12px;
+                                LabeledSpin {
+                                    label: "num-step";
+                                    value <=> root.infer-num-step;
+                                    minimum: 1;
+                                    maximum: 64;
+                                }
+                                LabeledFloat {
+                                    label: "guidance-scale";
+                                    value <=> root.infer-guidance-scale;
+                                }
+                                LabeledFloat {
+                                    label: "speed";
+                                    value <=> root.infer-speed;
+                                }
+                                LabeledSpin {
+                                    label: "seed";
+                                    value <=> root.infer-seed;
+                                    minimum: -1;
+                                    maximum: 999999;
+                                }
+                            }
+                            CheckBox {
+                                text: "Tắt Vietnamese normalize (--no-vietnamese-normalize)";
+                                checked <=> root.infer-no-vn-normalize;
+                            }
+
+                            ActionButton {
+                                label: root.busy ? "Đang chạy…" : "▶  Chạy infer_vizipvoice";
+                                enabled: !root.busy;
+                                clicked => { root.run-inference(); }
+                            }
+                        }
+                    }
+                }
+
+                Tab {
+                    title: "ONNX Inference";
+
+                    ScrollView {
+                        VerticalBox {
+                            padding: Theme.pad;
+                            spacing: 8px;
+
+                            SectionTitle { text: "ONNX models (ViZipVoice — character tokenizer)"; }
+                            Text {
+                                text: "Dùng tab này cho model export từ ViZipVoice. Không tương thích ZipVoice-Vietnamese-ONNX-GUI (Espeak/phoneme).";
+                                font-size: 11px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                            }
+                            LabeledPath {
+                                label: "ONNX model dir";
+                                value <=> root.onnx-model-dir;
+                                browse => { root.browse-onnx("model-dir"); }
+                            }
+                            CheckBox {
+                                text: "Dùng bản int4 (*_int4.onnx)";
+                                checked <=> root.onnx-use-int4;
+                            }
+
+                            SectionTitle { text: "Input"; }
+                            LabeledPath {
+                                label: "Prompt WAV";
+                                value <=> root.onnx-prompt-wav;
+                                browse => { root.browse-onnx("prompt-wav"); }
+                            }
+                            LabeledLine {
+                                label: "Prompt text";
+                                value <=> root.onnx-prompt-text;
+                            }
+                            LabeledLine {
+                                label: "Text to synthesize";
+                                value <=> root.onnx-text;
+                            }
+                            LabeledPath {
+                                label: "Output WAV";
+                                value <=> root.onnx-output-wav;
+                                browse => { root.browse-onnx("output-wav"); }
+                            }
+
+                            SectionTitle { text: "Parameters"; }
+                            HorizontalBox {
+                                spacing: 12px;
+                                LabeledSpin {
+                                    label: "num-step";
+                                    value <=> root.onnx-num-step;
+                                    minimum: 1;
+                                    maximum: 64;
+                                }
+                                LabeledFloat {
+                                    label: "guidance-scale";
+                                    value <=> root.onnx-guidance-scale;
+                                }
+                                LabeledFloat {
+                                    label: "speed";
+                                    value <=> root.onnx-speed;
+                                }
+                            }
+
+                            ActionButton {
+                                label: root.busy ? "Đang chạy…" : "▶  Chạy ONNX inference";
+                                enabled: !root.busy;
+                                clicked => { root.run-onnx-inference(); }
+                            }
+                        }
+                    }
+                }
+
+                Tab {
+                    title: "ONNX Export (4-bit)";
+
+                    ScrollView {
+                        VerticalBox {
+                            padding: Theme.pad;
+                            spacing: 8px;
+
+                            SectionTitle { text: "Source model"; }
+                            LabeledPath {
+                                label: "ViZipVoice model dir";
+                                value <=> root.export-model-dir;
+                                browse => { root.browse-export("model-dir"); }
+                            }
+                            LabeledLine {
+                                label: "Checkpoint name";
+                                value <=> root.export-checkpoint;
+                            }
+                            LabeledPath {
+                                label: "Vocos local path (optional)";
+                                value <=> root.export-vocoder-path;
+                                browse => { root.browse-export("vocoder-path"); }
+                            }
+
+                            SectionTitle { text: "Output"; }
+                            LabeledPath {
+                                label: "Export root (tạo onnx/ + vocoder/)";
+                                value <=> root.export-onnx-dir;
+                                browse => { root.browse-export("onnx-dir"); }
+                            }
+                            CheckBox {
+                                text: "Quantize int4 — ZipVoice + Vocos (MatMulNBits)";
+                                checked <=> root.export-quantize-4bit;
+                            }
+                            CheckBox {
+                                text: "Bỏ qua Vocos export";
+                                checked <=> root.export-skip-vocos;
+                            }
+                            CheckBox {
+                                text: "Deploy sang repo khác (không khuyến nghị — tokenizer khác ONNX-GUI gốc)";
+                                checked <=> root.export-deploy-onnx-gui;
+                            }
+                            if root.export-deploy-onnx-gui: LabeledLine {
+                                label: "Repo path (optional)";
+                                value <=> root.export-deploy-path;
+                            }
+
+                            Text {
+                                text: "Export → models/onnx/ + models/vocoder/. Test bằng tab ONNX Inference ở trên.\nZipVoice: text_encoder_int4 + fm_decoder_int4 + quantization.json\nVocos: mel_spec_24khz.onnx (mag/x/y → librosa ISTFT)";
+                                font-size: 11px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                            }
+
+                            ActionButton {
+                                label: root.busy ? "Đang export…" : "▶  Export ONNX int4 bundle";
+                                enabled: !root.busy;
+                                clicked => { root.run-export(); }
+                            }
+                        }
+                    }
+                }
+
+                Tab {
+                    title: "Download Model";
+
+                    ScrollView {
+                        VerticalBox {
+                            padding: Theme.pad;
+                            spacing: 8px;
+
+                            SectionTitle { text: "Hugging Face"; }
+                            LabeledLine {
+                                label: "Repo ID";
+                                value <=> root.download-repo;
+                            }
+                            LabeledPath {
+                                label: "Local dir";
+                                value <=> root.download-dir;
+                                browse => { root.browse-download("download-dir"); }
+                            }
+
+                            Text {
+                                text: "Tải checkpoint, config, tokens.txt, audio/ và demo/ về local để test offline.";
+                                font-size: 11px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                            }
+
+                            ActionButton {
+                                label: root.busy ? "Đang tải…" : "▶  huggingface-cli download";
+                                enabled: !root.busy;
+                                clicked => { root.run-download(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Log panel
+        Panel {
+            height: 200px;
+
+            VerticalBox {
+                padding: Theme.pad;
+                spacing: 6px;
+
+                HorizontalBox {
+                    SectionTitle {
+                        text: "Log";
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: root.status-text;
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        text: "Clear";
+                        min-width: 60px;
+                        clicked => { root.clear-log(); }
+                    }
+                }
+
+                Rectangle {
+                    background: Theme.log-bg;
+                    border-radius: 6px;
+                    vertical-stretch: 1;
+
+                    Text {
+                        text: root.log-text;
+                        color: Theme.text-primary;
+                        font-size: 11px;
+                        font-family: "Consolas";
+                        wrap: word-wrap;
+                        overflow: elide;
+                        x: 8px;
+                        y: 8px;
+                        width: parent.width - 16px;
+                        height: parent.height - 16px;
+                    }
+                }
+            }
+        }
+    }
+}

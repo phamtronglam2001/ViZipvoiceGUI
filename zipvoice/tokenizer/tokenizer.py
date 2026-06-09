@@ -29,14 +29,23 @@ from pypinyin.contrib.tone_convert import to_finals_tone3, to_initials
 
 from zipvoice.tokenizer.normalizer import ChineseTextNormalizer, EnglishTextNormalizer
 
-try:
-    from piper_phonemize import phonemize_espeak
-except Exception as ex:
-    raise RuntimeError(
-        f"{ex}\nPlease run\n"
-        "pip install piper_phonemize -f \
-            https://k2-fsa.github.io/icefall/piper_phonemize.html"
-    )
+_PHONEMIZE_ESPEAK = None
+
+
+def _phonemize_espeak(text: str, lang: str):
+    global _PHONEMIZE_ESPEAK
+    if _PHONEMIZE_ESPEAK is None:
+        try:
+            from piper_phonemize import phonemize_espeak as _fn
+        except Exception as ex:
+            raise RuntimeError(
+                f"{ex}\nPlease run\n"
+                "pip install piper_phonemize -f "
+                "https://k2-fsa.github.io/icefall/piper_phonemize.html"
+            ) from ex
+        _PHONEMIZE_ESPEAK = _fn
+    return _PHONEMIZE_ESPEAK(text, lang)
+
 
 jieba.default_logger.setLevel(logging.INFO)
 
@@ -157,7 +166,7 @@ class EspeakTokenizer(Tokenizer):
 
     def g2p(self, text: str) -> List[str]:
         try:
-            tokens = phonemize_espeak(text, self.lang)
+            tokens = _phonemize_espeak(text, self.lang)
             tokens = reduce(lambda x, y: x + y, tokens)
             return tokens
         except Exception as ex:
@@ -321,7 +330,7 @@ class EmiliaTokenizer(Tokenizer):
     def tokenize_EN(self, text: str) -> List[str]:
         try:
             text = self.english_normalizer.normalize(text)
-            tokens = phonemize_espeak(text, "en-us")
+            tokens = _phonemize_espeak(text, "en-us")
             tokens = reduce(lambda x, y: x + y, tokens)
             return tokens
         except Exception as ex:
@@ -581,7 +590,7 @@ class LibriTTSTokenizer(Tokenizer):
             tokens_list = [list(texts[i]) for i in range(len(texts))]
         elif self.type == "phone":
             tokens_list = [
-                phonemize_espeak(texts[i].lower(), "en-us") for i in range(len(texts))
+                _phonemize_espeak(texts[i].lower(), "en-us") for i in range(len(texts))
             ]
         elif self.type == "bpe":
             tokens_list = self.sp.encode(texts, out_type=str)
