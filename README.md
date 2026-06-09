@@ -10,7 +10,7 @@
 [![uv](https://img.shields.io/badge/setup-uv-DE5FE9)](https://github.com/astral-sh/uv)
 [![License](https://img.shields.io/badge/license-Non--Commercial-red)](LICENSE)
 
-**Author:** [Lam Pham](https://github.com/phamtronglam2001) · **Upstream:** [iamdinhthuan/ViZipvoice](https://github.com/iamdinhthuan/ViZipvoice) · [Tiếng Việt](README_VI.md)
+**Author:** [Pham Trong Lam](https://github.com/phamtronglam2001) · **Upstream:** [iamdinhthuan/ViZipvoice](https://github.com/iamdinhthuan/ViZipvoice) · [Tiếng Việt](README_VI.md)
 
 [Model](https://huggingface.co/contextboxai/ViZipvoice) · [HF Space](https://huggingface.co/spaces/dinhthuan/ViZipvoice) · [ZipVoice paper](https://arxiv.org/abs/2506.13053)
 
@@ -394,7 +394,7 @@ ViZipVoice can clone voices from a short prompt. Use only voices you have rights
 
 ### This fork (ViZipvoiceGUI)
 
-**Author:** [Lam Pham](https://github.com/phamtronglam2001) · **Repo:** [phamtronglam2001/ViZipvoiceGUI](https://github.com/phamtronglam2001/ViZipvoiceGUI)
+**Author:** [Pham Trong Lam](https://github.com/phamtronglam2001) · **Repo:** [phamtronglam2001/ViZipvoiceGUI](https://github.com/phamtronglam2001/ViZipvoiceGUI)
 
 Code and documentation in **this repository** are distributed under **Apache License 2.0 with an additional non-commercial restriction** — you may **not** use this fork for commercial purposes without written permission. See **[LICENSE](LICENSE)** for the full text. Model weights and third-party libraries keep their original licenses.
 
@@ -417,5 +417,5 @@ Please cite **ZipVoice** and credit **ViZipVoice** when building on this work.
 
 | Role | Link |
 |------|------|
-| **ViZipVoice GUI (this fork)** | [phamtronglam2001/ViZipvoiceGUI](https://github.com/phamtronglam2001/ViZipvoiceGUI) — Lam Pham |
+| **ViZipVoice GUI (this fork)** | [phamtronglam2001/ViZipvoiceGUI](https://github.com/phamtronglam2001/ViZipvoiceGUI) — Pham Trong Lam |
 | **ViZipVoice (upstream model)** | [iamdinhthuan/ViZipvoice](https://github.com/iamdinhthuan/ViZipvoice) · [HF Space](https://huggingface.co/spaces/dinhthuan/ViZipvoice) |

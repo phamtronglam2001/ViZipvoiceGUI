@@ -10,7 +10,7 @@
 [![uv](https://img.shields.io/badge/setup-uv-DE5FE9)](https://github.com/astral-sh/uv)
 [![License](https://img.shields.io/badge/license-Non--Commercial-red)](LICENSE)
 
-**Tác giả:** [Lam Pham](https://github.com/phamtronglam2001) · **Gốc:** [iamdinhthuan/ViZipvoice](https://github.com/iamdinhthuan/ViZipvoice) · [English](README.md)
+**Tác giả:** [Pham Trong Lam](https://github.com/phamtronglam2001) · **Gốc:** [iamdinhthuan/ViZipvoice](https://github.com/iamdinhthuan/ViZipvoice) · [English](README.md)
 
 [Model](https://huggingface.co/contextboxai/ViZipvoice) · [HF Space](https://huggingface.co/spaces/dinhthuan/ViZipvoice) · [Paper ZipVoice](https://arxiv.org/abs/2506.13053)
 
@@ -392,7 +392,7 @@ ViZipVoice có thể clone giọng từ prompt ngắn. Chỉ dùng giọng khi b
 
 ### Fork này (ViZipvoiceGUI)
 
-**Tác giả:** [Lam Pham](https://github.com/phamtronglam2001) · **Repo:** [phamtronglam2001/ViZipvoiceGUI](https://github.com/phamtronglam2001/ViZipvoiceGUI)
+**Tác giả:** [Pham Trong Lam](https://github.com/phamtronglam2001) · **Repo:** [phamtronglam2001/ViZipvoiceGUI](https://github.com/phamtronglam2001/ViZipvoiceGUI)
 
 Mã nguồn và tài liệu trong **repo này** phát hành theo **Apache 2.0 kèm điều khoản cấm dùng thương mại** — không được dùng cho mục đích thương mại nếu chưa có sự đồng ý bằng văn bản. Chi tiết: **[LICENSE](LICENSE)**. Weights và thư viện bên thứ ba giữ license gốc.
 
@@ -415,5 +415,5 @@ Vui lòng cite **ZipVoice** và ghi nhận **ViZipVoice** khi tái sử dụng.
 
 | Vai trò | Liên kết |
 |---------|----------|
-| **ViZipVoice GUI (fork này)** | [phamtronglam2001/ViZipvoiceGUI](https://github.com/phamtronglam2001/ViZipvoiceGUI) — Lam Pham |
+| **ViZipVoice GUI (fork này)** | [phamtronglam2001/ViZipvoiceGUI](https://github.com/phamtronglam2001/ViZipvoiceGUI) — Pham Trong Lam |
 | **ViZipVoice (model gốc)** | [iamdinhthuan/ViZipvoice](https://github.com/iamdinhthuan/ViZipvoice) · [HF Space](https://huggingface.co/spaces/dinhthuan/ViZipvoice) |

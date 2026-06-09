@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-AUTHOR_NAME = "Lam Pham"
+AUTHOR_NAME = "Pham Trong Lam"
 AUTHOR_GITHUB = "phamtronglam2001"
 REPO_URL = f"https://github.com/{AUTHOR_GITHUB}/ViZipvoiceGUI"
 UPSTREAM_URL = "https://github.com/iamdinhthuan/ViZipvoice"
