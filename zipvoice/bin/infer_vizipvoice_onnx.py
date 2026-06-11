@@ -6,11 +6,22 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
 import torch
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_ONNX_DIR = REPO_ROOT / "models" / "onnx"
+
+
+def resolve_default_onnx_dir() -> Path:
+    env = os.getenv("VIZIPVOICE_ONNX_DIR", "").strip()
+    if env:
+        return Path(env).resolve()
+    return DEFAULT_ONNX_DIR.resolve()
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -18,7 +29,11 @@ def get_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description="ViZipVoice ONNX inference from local export directory.",
     )
-    parser.add_argument("--onnx-model-dir", required=True)
+    parser.add_argument(
+        "--onnx-model-dir",
+        default=None,
+        help="Exported ONNX dir (default: models/onnx or VIZIPVOICE_ONNX_DIR)",
+    )
     parser.add_argument("--use-int4", action="store_true")
     parser.add_argument("--prompt-wav", required=True)
     parser.add_argument("--prompt-text", required=True)
@@ -130,7 +145,16 @@ def decode_with_vocos_onnx(
 
 def main() -> None:
     args = get_parser().parse_args()
-    onnx_dir = Path(args.onnx_model_dir)
+    onnx_dir = (
+        Path(args.onnx_model_dir).resolve()
+        if args.onnx_model_dir
+        else resolve_default_onnx_dir()
+    )
+    if not onnx_dir.is_dir():
+        raise FileNotFoundError(
+            f"ONNX dir không tồn tại: {onnx_dir}\n"
+            "Export trước (run_export_gui.bat) hoặc set VIZIPVOICE_ONNX_DIR."
+        )
     vocos_path = resolve_vocoder_onnx(onnx_dir, args.vocoder_onnx)
 
     from zipvoice.onnx_inference import ViZipVoiceOnnxTTS

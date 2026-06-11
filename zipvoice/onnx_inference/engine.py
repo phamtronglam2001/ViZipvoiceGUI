@@ -15,7 +15,11 @@ import torch
 from lhotse.utils import fix_random_seed
 
 from zipvoice.bin.infer_zipvoice import get_vocoder
-from zipvoice.bin.infer_zipvoice_onnx import OnnxModel, sample
+from zipvoice.bin.infer_zipvoice_onnx import (
+    OnnxModel,
+    onnx_prompt_duration_mismatch,
+    sample,
+)
 from zipvoice.onnx_inference.runtime import (
     default_onnx_threads,
     make_session_options,
@@ -217,11 +221,18 @@ class ViZipVoiceOnnxTTS:
         self._prompt_rms = float(prompt_rms)
         self._prompt_text = prompt_text
         self._prompt_tokens = self.tokenizer.texts_to_token_ids([prompt_text])
+        prompt_tokens_len = len(self._prompt_tokens[0])
+        mel_frames = int(self._prompt_features.shape[1])
+        if onnx_prompt_duration_mismatch(mel_frames, prompt_tokens_len):
+            logger.warning(
+                "Prompt text quá ngắn so với audio (vd. 'Một.' với clip dài) — "
+                "ONNX có thể sinh rác ở cuối. Dùng transcript đầy đủ của ref audio."
+            )
         self._prompt_cache_key = key
 
     def _decode_mel(self, pred_features: torch.Tensor, feat_scale: float) -> torch.Tensor:
+        # pred_features already trimmed to pred_features_lens in sample()
         pred_mel = pred_features / feat_scale
-        mel_frames = int(pred_mel.shape[1])
         if self._vocos_session is not None:
             wav = decode_with_vocos_onnx(self._vocos_session, pred_mel)
         else:
@@ -231,10 +242,6 @@ class ViZipVoiceOnnxTTS:
             wav = vocoder.decode(pred).squeeze(1).clamp(-1, 1)
         if wav.ndim == 1:
             wav = wav.unsqueeze(0)
-        # Vocoder ONNX (librosa ISTFT) may overshoot; PyTorch trims mel frames before decode.
-        max_samples = mel_frames * 256
-        if wav.shape[-1] > max_samples:
-            wav = wav[..., :max_samples]
         return wav
 
     def _synthesize_chunk(

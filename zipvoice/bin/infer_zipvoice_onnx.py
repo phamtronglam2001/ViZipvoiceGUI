@@ -360,7 +360,11 @@ def predict_generated_features_len(
     target_tokens_len: int,
     speed: float,
 ) -> int:
-    """Match ZipVoice.forward_text_inference_ratio_duration / sample() trimming."""
+    """PyTorch ZipVoice.sample() pred_features_lens (ratio-duration mode).
+
+    Same formula as forward_text_inference_ratio_duration:
+    ceil(prompt_mel_len / prompt_token_len * target_token_len / speed).
+    """
     if target_tokens_len <= 0 or prompt_tokens_len <= 0:
         return 0
     return int(
@@ -369,11 +373,116 @@ def predict_generated_features_len(
                 prompt_features_len
                 / prompt_tokens_len
                 * target_tokens_len
-                / speed,
+                / max(float(speed), 1e-6),
                 dtype=torch.float32,
             )
         ).item()
     )
+
+
+def find_active_mel_start_in_region(mel_gen: Tensor) -> int:
+    """First frame of vocoder-audible speech in the post-prompt mel region.
+
+    Without padding_mask the ONNX FM decoder leaves a high-energy plateau at the
+    start of the generated region; real speech begins after the subsequent dip.
+    Returns 0 when no reliable onset is found.
+    """
+    if mel_gen.numel() == 0:
+        return 0
+    if mel_gen.dim() == 3:
+        mel_gen = mel_gen[0]
+    num_frames = int(mel_gen.shape[0])
+    if num_frames <= 3:
+        return 0
+
+    energy = mel_gen.abs().amax(dim=-1).cpu().numpy().astype(np.float64)
+    peak = float(energy.max())
+    if peak < 1e-6:
+        return 0
+
+    win = min(5, num_frames)
+    kernel = np.ones(win, dtype=np.float64) / win
+    smooth = np.convolve(energy, kernel, mode="valid")
+    if len(smooth) == 0:
+        return 0
+
+    prefix_len = min(8, max(2, len(smooth) // 4))
+    prefix_level = float(np.median(smooth[:prefix_len]))
+    drop_thresh = max(prefix_level * 0.72, peak * 0.32)
+    below = np.where(smooth < drop_thresh)[0]
+    if len(below):
+        plateau_end = int(below[0])
+        search_end = min(plateau_end + 25, len(smooth))
+        floor = (
+            float(smooth[plateau_end:search_end].min())
+            if search_end > plateau_end
+            else prefix_level
+        )
+        rise_thresh = max(floor * 1.4, peak * 0.38)
+        for i in range(plateau_end, len(smooth) - 1):
+            if smooth[i] >= rise_thresh and smooth[i + 1] >= rise_thresh * 0.95:
+                return min(i, num_frames - 1)
+
+    bg = float(np.percentile(energy, 20))
+    threshold = max(bg * 2.5, peak * 0.45)
+    active = np.where(energy >= threshold)[0]
+    return int(active[0]) if len(active) else 0
+
+
+def trim_to_pytorch_pred_features_lens(
+    features: Tensor,
+    prompt_features_len: int,
+    prompt_tokens_len: int,
+    target_tokens_len: int,
+    speed: float,
+) -> Tensor:
+    """Keep valid generated mel frames — PyTorch duration + active-speech alignment."""
+    prompt_len = int(prompt_features_len)
+    gen_len = predict_generated_features_len(
+        prompt_len,
+        prompt_tokens_len,
+        target_tokens_len,
+        speed,
+    )
+    if target_tokens_len > 0:
+        gen_len = max(gen_len, 1)
+    available = max(0, int(features.shape[1]) - prompt_len)
+    if available == 0:
+        return features[:, prompt_len:prompt_len, :]
+
+    gen_region = features[:, prompt_len : prompt_len + available, :]
+    start_offset = find_active_mel_start_in_region(gen_region)
+    max_skip = max(0, int(available * 0.35))
+    start_offset = min(start_offset, max_skip)
+
+    remain = available - start_offset
+    out_len = min(gen_len, remain)
+    if out_len <= 0:
+        start_offset = 0
+        out_len = min(gen_len, available)
+
+    if start_offset or available > out_len:
+        logging.debug(
+            "ONNX mel trim: available=%d start=%d → %d frames (pred_features_lens=%d)",
+            available,
+            start_offset,
+            out_len,
+            gen_len,
+        )
+    return features[
+        :, prompt_len + start_offset : prompt_len + start_offset + out_len, :
+    ]
+
+
+def onnx_prompt_duration_mismatch(
+    prompt_features_len: int,
+    prompt_tokens_len: int,
+) -> bool:
+    """True when prompt audio is long but transcript is very short (e.g. 'Một.')."""
+    if prompt_tokens_len <= 0:
+        return False
+    frames_per_token = prompt_features_len / prompt_tokens_len
+    return frames_per_token > 40
 
 
 def sample(
@@ -438,16 +547,14 @@ def sample(
         )
         x = x + v * (timesteps[step + 1] - timesteps[step])
 
-    prompt_len = int(prompt_features_len.item())
     speed_value = float(speed.item()) if isinstance(speed, Tensor) else float(speed)
-    gen_len = predict_generated_features_len(
-        prompt_len,
-        int(prompt_tokens.shape[1]),
-        int(tokens.shape[1]),
-        speed_value,
+    return trim_to_pytorch_pred_features_lens(
+        x,
+        prompt_features_len=int(prompt_features_len.item()),
+        prompt_tokens_len=int(prompt_tokens.shape[1]),
+        target_tokens_len=int(tokens.shape[1]),
+        speed=speed_value,
     )
-    gen_len = min(gen_len, max(0, x.shape[1] - prompt_len))
-    return x[:, prompt_len : prompt_len + gen_len, :]
 
 
 # Copied from zipvoice/bin/infer_zipvoice.py, but call an external sample function

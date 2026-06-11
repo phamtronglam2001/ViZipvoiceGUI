@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -37,6 +39,13 @@ DEFAULT_MODEL_DIR = REPO_ROOT / "models" / "ViZipvoice"
 OUTPUT_DIR = REPO_ROOT / "output" / "gradio"
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
 PREFERRED_REFS = ["Đinh-Quyết", "Nhã-Uyên", "MC"]
+MP3_BITRATE_CHOICES = ("32 kbps (mặc định)", "128 kbps")
+FFMPEG_CANDIDATES = (
+    REPO_ROOT / "ffmpeg" / "ffmpeg.exe",
+    REPO_ROOT / "ffmpeg" / "bin" / "ffmpeg.exe",
+    REPO_ROOT / "ffmpeg" / "ffmpeg",
+    REPO_ROOT / "ffmpeg" / "bin" / "ffmpeg",
+)
 
 DEMO_TEXT = (
     "Chiến tranh luôn là một chủ đề nặng nề, nhưng cũng rất cần được nhắc đến "
@@ -108,15 +117,117 @@ def load_ref_prompts(model_dir: str) -> tuple[RefPrompt, ...]:
     return tuple(prompts)
 
 
-@lru_cache(maxsize=1)
-def get_tts(model_dir: str) -> ViZipVoiceTTS:
-    path = Path(model_dir)
-    if path.is_dir():
-        logging.info("Loading ViZipVoice from local %s", path)
-        return ViZipVoiceTTS(model_dir=path, checkpoint_name="latest", num_threads=1)
+def resolve_ffmpeg_path() -> Optional[Path]:
+    for candidate in FFMPEG_CANDIDATES:
+        if candidate.is_file():
+            return candidate
+    found = shutil.which("ffmpeg")
+    return Path(found) if found else None
 
-    logging.info("Loading ViZipVoice from Hugging Face %s", DEFAULT_REPO_ID)
-    return ViZipVoiceTTS(repo_id=DEFAULT_REPO_ID, checkpoint_name="latest", num_threads=1)
+
+def expected_ffmpeg_hint() -> str:
+    return str(REPO_ROOT / "ffmpeg" / "ffmpeg.exe")
+
+
+def parse_device_choice(choice: str) -> Optional[str]:
+    if choice == "auto":
+        return None
+    return choice
+
+
+def parse_mp3_bitrate(choice: str) -> int:
+    if "128" in choice:
+        return 128
+    return 32
+
+
+def wav_to_mp3(wav_path: Path, bitrate_kbps: int) -> Path:
+    ffmpeg = resolve_ffmpeg_path()
+    if ffmpeg is None:
+        raise gr.Error(
+            f"Không tìm thấy ffmpeg. Cần có tại `{expected_ffmpeg_hint()}` "
+            "hoặc cài ffmpeg trên PATH."
+        )
+
+    mp3_path = wav_path.with_suffix(".mp3")
+    cmd = [
+        str(ffmpeg),
+        "-y",
+        "-i",
+        str(wav_path),
+        "-ar",
+        "24000",
+        "-ac",
+        "1",
+        "-b:a",
+        f"{bitrate_kbps}k",
+        str(mp3_path),
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise gr.Error(f"Không chạy được ffmpeg: {exc}") from exc
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise gr.Error(f"ffmpeg lỗi khi chuyển MP3: {detail or result.returncode}")
+
+    if not mp3_path.is_file():
+        raise gr.Error("ffmpeg chạy xong nhưng không tạo được file MP3.")
+    return mp3_path
+
+
+def load_txt_for_preview(file_path: Optional[str]) -> str:
+    if not file_path:
+        return gr.update()
+    try:
+        return Path(file_path).read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise gr.Error(
+            "Không đọc được file TXT — file phải mã hóa UTF-8."
+        ) from exc
+    except OSError as exc:
+        raise gr.Error(f"Không mở được file TXT: {exc}") from exc
+
+
+@lru_cache(maxsize=8)
+def get_tts(
+    model_dir: str,
+    device_choice: str = "auto",
+    num_threads: int = 1,
+    use_fp16: bool = True,
+) -> ViZipVoiceTTS:
+    device = parse_device_choice(device_choice)
+    path = Path(model_dir)
+    kwargs = {
+        "checkpoint_name": "latest",
+        "device": device,
+        "num_threads": int(num_threads),
+        "use_fp16": bool(use_fp16),
+    }
+    if path.is_dir():
+        logging.info(
+            "Loading ViZipVoice from local %s (device=%s, threads=%s, fp16=%s)",
+            path,
+            device_choice,
+            num_threads,
+            use_fp16,
+        )
+        return ViZipVoiceTTS(model_dir=path, **kwargs)
+
+    logging.info(
+        "Loading ViZipVoice from Hugging Face %s (device=%s, threads=%s, fp16=%s)",
+        DEFAULT_REPO_ID,
+        device_choice,
+        num_threads,
+        use_fp16,
+    )
+    return ViZipVoiceTTS(repo_id=DEFAULT_REPO_ID, **kwargs)
 
 
 def refs_by_label(model_dir: str) -> dict[str, RefPrompt]:
@@ -147,6 +258,11 @@ def generate(
     prompt_audio: Optional[str],
     prompt_text: str,
     text: str,
+    device_choice: str,
+    perf_num_threads: int,
+    use_fp16: bool,
+    export_mp3: bool,
+    mp3_bitrate_choice: str,
     num_step: int,
     guidance_scale: float,
     speed: float,
@@ -161,7 +277,7 @@ def generate(
     silence_ms: int,
     fade_in_ms: int,
     fade_out_ms: int,
-) -> tuple[str, str]:
+) -> tuple[str, Optional[str], str]:
     if not text or not text.strip():
         raise gr.Error("Nhập text cần sinh trước khi chạy inference.")
 
@@ -172,9 +288,16 @@ def generate(
     output_path = OUTPUT_DIR / f"vizipvoice_{int(time.time())}_{uuid.uuid4().hex[:8]}.wav"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    tts = get_tts(
+        model_dir,
+        device_choice=device_choice,
+        num_threads=int(perf_num_threads),
+        use_fp16=bool(use_fp16),
+    )
+
     start = time.time()
     try:
-        metrics = get_tts(model_dir).synthesize(
+        metrics = tts.synthesize(
             prompt_wav=prompt_wav,
             prompt_text=final_prompt_text,
             text=text.strip(),
@@ -199,10 +322,17 @@ def generate(
         raise gr.Error(str(exc)) from exc
 
     elapsed = time.time() - start
-    tts = get_tts(model_dir)
+    mp3_path: Optional[str] = None
+    if export_mp3:
+        mp3_file = wav_to_mp3(output_path, parse_mp3_bitrate(mp3_bitrate_choice))
+        mp3_path = str(mp3_file)
+
     status = {
         "checkpoint": Path(tts.checkpoint_path).name,
         "device": str(tts.device),
+        "device_requested": device_choice,
+        "fp16_autocast": tts.use_fp16,
+        "num_threads": int(perf_num_threads),
         "model_dir": model_dir,
         "prompt": Path(prompt_wav).name,
         "normalize_pipeline": format_pipeline_label(norm_pipeline),
@@ -212,7 +342,10 @@ def generate(
         "elapsed_seconds": round(elapsed, 3),
         "segment_settings": metrics.get("segment_settings", []),
     }
-    return str(output_path), json.dumps(status, ensure_ascii=False, indent=2)
+    if mp3_path:
+        status["mp3_path"] = mp3_path
+        status["mp3_bitrate_kbps"] = parse_mp3_bitrate(mp3_bitrate_choice)
+    return str(output_path), mp3_path, json.dumps(status, ensure_ascii=False, indent=2)
 
 
 def preview_normalizer(text: str, norm_pipeline_raw: str, enabled: bool) -> str:
@@ -258,8 +391,44 @@ def build_app(model_dir: Path) -> gr.Blocks:
                         )
 
                     with gr.Column(scale=1):
+                        txt_upload = gr.File(
+                            label="Tải TXT (audiobook)",
+                            file_types=[".txt"],
+                            type="filepath",
+                        )
                         text = gr.Textbox(value=DEMO_TEXT, lines=8, label="Text")
                         generate_btn = gr.Button("Generate", variant="primary")
+
+                        with gr.Accordion("Hiệu năng", open=False):
+                            device_choice = gr.Radio(
+                                choices=["auto", "cuda", "cpu"],
+                                value="auto",
+                                label="Thiết bị",
+                                info="Tự động: CUDA/MPS nếu có, không thì CPU",
+                            )
+                            perf_num_threads = gr.Slider(
+                                1,
+                                16,
+                                value=1,
+                                step=1,
+                                label="Số luồng CPU (PyTorch)",
+                            )
+                            use_fp16 = gr.Checkbox(
+                                value=True,
+                                label="FP16 trên CUDA (nhanh hơn, tắt nếu lỗi GPU)",
+                            )
+
+                        with gr.Accordion("Xuất MP3", open=False):
+                            export_mp3 = gr.Checkbox(
+                                value=False,
+                                label="Xuất MP3 sau khi sinh WAV",
+                            )
+                            mp3_bitrate = gr.Dropdown(
+                                choices=list(MP3_BITRATE_CHOICES),
+                                value=MP3_BITRATE_CHOICES[0],
+                                label="Bitrate MP3",
+                                info="24 kHz mono qua ffmpeg",
+                            )
 
                         with gr.Accordion("Advanced", open=False):
                             with gr.Row():
@@ -294,9 +463,15 @@ def build_app(model_dir: Path) -> gr.Blocks:
                                 fade_out_ms = gr.Slider(0, 500, value=80, step=10, label="Fade out ms")
 
                 with gr.Row():
-                    output_audio = gr.Audio(type="filepath", label="Output")
+                    output_audio = gr.Audio(type="filepath", label="Output (WAV)")
+                    output_mp3 = gr.Audio(type="filepath", label="Output (MP3)")
                     status = gr.Textbox(lines=12, label="Status")
 
+                txt_upload.change(
+                    fn=load_txt_for_preview,
+                    inputs=[txt_upload],
+                    outputs=[text],
+                )
                 ref_label.change(
                     fn=lambda label: select_ref(model_dir_str, label),
                     inputs=[ref_label],
@@ -309,6 +484,11 @@ def build_app(model_dir: Path) -> gr.Blocks:
                         prompt_audio,
                         prompt_text,
                         text,
+                        device_choice,
+                        perf_num_threads,
+                        use_fp16,
+                        export_mp3,
+                        mp3_bitrate,
                         num_step,
                         guidance_scale,
                         speed,
@@ -324,7 +504,7 @@ def build_app(model_dir: Path) -> gr.Blocks:
                         fade_in_ms,
                         fade_out_ms,
                     ],
-                    outputs=[output_audio, status],
+                    outputs=[output_audio, output_mp3, status],
                 )
 
             with gr.Tab("Text Normalizer"):
