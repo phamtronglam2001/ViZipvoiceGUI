@@ -45,7 +45,7 @@ The **Gradio GUIs** mirror the [Hugging Face Space](https://huggingface.co/space
 - 🧩 **Configurable normalization pipeline** — composable steps (`soe_vinorm`, spacing cleanup, `period_break`, `sea_g2p`, …) with live preview tab.
 - 📝 **Sentence-aware synthesis** — auto split long text; adaptive `num_step` / `speed` for 1-word and 2–4-word sentences.
 - 🎛️ **Offline Gradio (PyTorch)** — ref picker, **TXT audiobook upload**, **Hiệu năng** (device, CPU threads, FP16), optional **MP3 export** via bundled `ffmpeg/bin`, advanced controls, status JSON; **auto-opens browser**.
-- ⚡ **ONNX Gradio** — same TTS controls as PyTorch for `models/onnx` int4 + Vocos ONNX (`mel_spec_24khz.onnx` or `mel_spec_24khz_int4.onnx`); **TXT audiobook upload**, **MP3/ffmpeg** export (shared with PyTorch app), **Hiệu năng** tab last (GPU, ORT threads, force CPU); **mel trim fix** for short sentences (`run.bat` → [2]).
+- ⚡ **ONNX Gradio** — same TTS controls as PyTorch for `models/onnx` int4 + Vocos ONNX (`mel_spec_24khz.onnx` or `mel_spec_24khz_int4.onnx`); **TXT audiobook upload**, **MP3/ffmpeg** export (shared with PyTorch app), **Hiệu năng** tab last (GPU, ORT threads, force CPU); best for **long text / audiobook** (`run.bat` → [2]).
 - 📤 **ONNX export Gradio** — export ZipVoice + Vocos int4 to `models/onnx` / `models/vocoder` (`run.bat` → [3]).
 - 🚀 **Unified launchers** — `setup.bat` (uv-only profiles [1]–[7]: ONNX/PyTorch CPU or GPU, export deps) + `run.bat` direct launch (no `uv sync`); GPU auto-fallback to CPU — no separate CPU batch files.
 - 🖥️ **Slint GUI (optional)** — native desktop window for CLI inference, download, and export (no browser).
@@ -62,7 +62,7 @@ The **Gradio GUIs** mirror the [Hugging Face Space](https://huggingface.co/space
 | **Audio I/O (Windows)** | `audio_io` — soundfile + pydub for read; optional **MP3 export** via portable `ffmpeg/bin/ffmpeg.exe` (64/128/256 kbps) |
 | **Segment post-process** | Per-sentence synth → silence + crossfade + fade in/out join |
 | **Local productization** | `uv` project (`pyproject.toml`), Windows `.bat` launchers with step logs + `pause` on error |
-| **ONNX path** | `export_onnx_bundle` (int4), `ViZipVoiceOnnxTTS`, Gradio + CLI infer; **mel trim** aligned with PyTorch for short sentences; **character tokenizer only** |
+| **ONNX path** | `export_onnx_bundle` (int4), `ViZipVoiceOnnxTTS`, Gradio + CLI infer; **character tokenizer only**; long-form TTS recommended |
 
 ---
 
@@ -231,7 +231,11 @@ Set `VIZIPVOICE_MODEL_DIR` to override the default `models/ViZipvoice` path.
 | **Text Normalizer** | Same preview tab |
 | **Hiệu năng** | GPU (CUDA / DirectML), force CPU, ORT threads (0 = auto); reads `.install_mode_onnx` after `setup.bat` → [3] or [6] |
 
-ONNX inference trims generated mel to match PyTorch duration and **active-speech alignment** — fixes bleed/artifacts on **short sentences** (e.g. one-word prompts).
+### ONNX limitations (short text)
+
+ONNX inference works well for **long sentences and paragraphs** (audiobook-style input). **Short inputs (1–3 words)** — e.g. `một`, or `một. hai.` with sentence split — may show wrong mel trim, noise, or slow generation. This is a known ONNX export quirk, not something this repo patches around.
+
+**Recommendation:** for short phrases, use **PyTorch TTS** (`run.bat` → [1] or `uv run vizipvoice-local`).
 
 ### Reference voices (`models/ViZipvoice/audio/`)
 

@@ -122,13 +122,24 @@ uv pip install -r requirements-onnx-inference.txt
 exit /b %ERRORLEVEL%
 
 :pytorch_gpu
-echo [uv pip] torch CUDA...
-uv pip install --offline torch torchaudio
-if errorlevel 1 uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
-if errorlevel 1 uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
-if errorlevel 1 exit /b 1
 call :check_pytorch_gpu
-exit /b %ERRORLEVEL%
+if not errorlevel 1 (
+    echo [OK] PyTorch CUDA da co — bo qua.
+    exit /b 0
+)
+echo [uv pip] go torch CPU — cai torch CUDA...
+uv pip uninstall torch torchaudio
+for %%I in (cu128 cu124 cu126 cu121) do (
+    echo --- Thu index %%I ---
+    uv pip install --offline torch torchaudio --index-url https://download.pytorch.org/whl/%%I
+    call :check_pytorch_gpu
+    if not errorlevel 1 exit /b 0
+    uv pip install --reinstall torch torchaudio --index-url https://download.pytorch.org/whl/%%I
+    call :check_pytorch_gpu
+    if not errorlevel 1 exit /b 0
+)
+echo [LOI] Khong cai duoc PyTorch CUDA — can mang hoac wheel cu128/cu124 trong uv cache.
+exit /b 1
 
 :check_pytorch_gpu
 echo [check] PyTorch CUDA...

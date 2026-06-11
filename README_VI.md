@@ -45,7 +45,7 @@ Stack **offline**: tải checkpoint PyTorch một lần, chọn **30 giọng m�
 - 🧩 **Pipeline chuẩn hóa tùy biến** — các bước ghép nối (`soe_vinorm`, dọn dấu câu, `period_break`, `sea_g2p`, …) + tab xem trước.
 - 📝 **Synth theo câu** — tách text dài; điều chỉnh `num_step` / `speed` cho câu 1 từ và 2–4 từ.
 - 🎛️ **Gradio PyTorch** — chọn ref, **tải TXT audiobook**, tab **Hiệu năng** (thiết bị, luồng CPU, FP16), **xuất MP3** qua `ffmpeg/bin`, tham số nâng cao, JSON trạng thái — cùng flow Space; **tự mở browser**.
-- ⚡ **Gradio ONNX** — cùng controls TTS cho `models/onnx` int4 + Vocos ONNX (`mel_spec_24khz.onnx` hoặc `mel_spec_24khz_int4.onnx`); **tải TXT audiobook**, **xuất MP3/ffmpeg** (dùng chung flow PyTorch), tab **Hiệu năng** cuối cùng (GPU, ORT threads, ép CPU); **sửa mel trim** cho câu ngắn (`run.bat` → [2]).
+- ⚡ **Gradio ONNX** — cùng controls TTS cho `models/onnx` int4 + Vocos ONNX (`mel_spec_24khz.onnx` hoặc `mel_spec_24khz_int4.onnx`); **tải TXT audiobook**, **xuất MP3/ffmpeg** (dùng chung flow PyTorch), tab **Hiệu năng** cuối cùng (GPU, ORT threads, ép CPU); phù hợp **text dài / audiobook** (`run.bat` → [2]).
 - 📤 **Gradio export ONNX** — export ZipVoice + Vocos int4 (`run.bat` → [3]).
 - 🚀 **Launcher thống nhất** — `setup.bat` (chỉ uv, profile [1]–[7]: ONNX/PyTorch CPU hoặc GPU, export) + `run.bat` mở app trực tiếp (không `uv sync`); GPU lỗi → tự fallback CPU — không còn file `.bat` CPU riêng.
 - 🖥️ **Slint GUI (tùy chọn)** — desktop native, không browser.
@@ -62,7 +62,7 @@ Stack **offline**: tải checkpoint PyTorch một lần, chọn **30 giọng m�
 | **Audio I/O (Windows)** | `audio_io` — soundfile + pydub đọc file; **xuất MP3** tùy chọn qua `ffmpeg/bin/ffmpeg.exe` (64/128/256 kbps) |
 | **Hậu xử lý segment** | Synth từng câu → nối silence + crossfade + fade in/out |
 | **Cài đặt local** | Project `uv`, file `.bat` có log từng bước + `pause` khi lỗi |
-| **Nhánh ONNX** | `export_onnx_bundle`, `ViZipVoiceOnnxTTS`, Gradio + CLI; **mel trim** khớp PyTorch cho câu ngắn; **tokenizer ký tự** |
+| **Nhánh ONNX** | `export_onnx_bundle`, `ViZipVoiceOnnxTTS`, Gradio + CLI; **tokenizer ký tự**; nên dùng cho text dài |
 
 ---
 
@@ -230,7 +230,11 @@ uv run vizipvoice-local --host 0.0.0.0 --port 7860
 | **Text Normalizer** | Tab preview giống PyTorch |
 | **Hiệu năng** | GPU (CUDA / DirectML), ép CPU, ORT threads (0 = tự động); đọc `.install_mode_onnx` sau `setup.bat` → [3] hoặc [6] |
 
-Inference ONNX cắt mel khớp độ dài PyTorch và **căn active-speech** — sửa bleed/artifact trên **câu ngắn** (vd. prompt một từ).
+### Giới hạn ONNX (câu ngắn)
+
+Inference ONNX **ổn với câu dài và đoạn văn** (kiểu audiobook). **Input ngắn (1–3 từ)** — vd. `một`, hoặc `một. hai.` khi bật tách câu — có thể sai trim mel, nhiễu, hoặc synth chậm. Đây là hạn chế của bản export ONNX, repo **không** vá workaround.
+
+**Khuyến nghị:** cụm ngắn → dùng **PyTorch TTS** (`run.bat` → [1] hoặc `uv run vizipvoice-local`).
 
 ### Giọng mẫu (`models/ViZipvoice/audio/`)
 

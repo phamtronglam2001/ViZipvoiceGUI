@@ -254,6 +254,11 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
 
         with gr.Tabs():
             with gr.Tab("TTS (ONNX)"):
+                gr.Markdown(
+                    "> **Lưu ý ONNX:** Text **dài / đoạn văn** chạy ổn. "
+                    "Câu **rất ngắn (1–3 từ)** có thể sai trim, nhiễu hoặc chậm — "
+                    "dùng **PyTorch TTS** (`run.bat` → **[1]**)."
+                )
                 with gr.Row():
                     with gr.Column(scale=1):
                         onnx_model_dir = gr.Textbox(
@@ -288,7 +293,12 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
                             file_types=[".txt"],
                             type="filepath",
                         )
-                        text = gr.Textbox(value=DEMO_TEXT, lines=8, label="Text")
+                        text = gr.Textbox(
+                            value=DEMO_TEXT,
+                            lines=8,
+                            label="Text",
+                            info="Câu ngắn (1–3 từ): dùng PyTorch [1] thay vì ONNX.",
+                        )
                         generate_btn = gr.Button("Generate (ONNX)", variant="primary")
 
                         with gr.Accordion("Xuất MP3 / ffmpeg", open=has_ffmpeg):
