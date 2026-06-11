@@ -30,7 +30,7 @@ echo   [2] ONNX TTS      — Gradio :7861  ^(can export ONNX truoc^)
 echo   [3] Export ONNX   — Gradio :7862
 echo   [4] Slint Desktop — cua so native ^(khong browser^)
 echo.
-echo GPU: tu dong neu da cai ^(setup.bat ^> GPU^), khong co thi fallback CPU.
+echo GPU: theo setup.bat ^(GPU PyTorch / GPU ONNX^), khong co thi fallback CPU.
 echo Tham so them: truyen sau menu, vd. --port 7863 --no-inbrowser
 echo.
 set "RUN_CHOICE=1"
