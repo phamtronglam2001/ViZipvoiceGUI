@@ -297,6 +297,8 @@ class OnnxModel:
         self.init_fm_decoder(fm_decoder_path)
 
     def init_text_encoder(self, model_path: str):
+        from zipvoice.onnx_inference.runtime import create_inference_session
+
         self.text_encoder = create_inference_session(
             model_path,
             sess_options=self.session_opts,
@@ -304,6 +306,8 @@ class OnnxModel:
         )
 
     def init_fm_decoder(self, model_path: str):
+        from zipvoice.onnx_inference.runtime import create_inference_session
+
         self.fm_decoder = create_inference_session(
             model_path,
             sess_options=self.session_opts,
@@ -458,6 +462,16 @@ def trim_to_pytorch_pred_features_lens(
 
     remain = available - start_offset
     out_len = min(gen_len, remain)
+    # ONNX FM spreads speech across more mel frames than PyTorch's padding_mask
+    # allows when the text encoder allocates extra headroom (available >> gen_len).
+    # Compensate for the skipped prefix plateau without extending short-dot outputs
+    # where start_offset already dwarfs gen_len (e.g. "8." at speed 0.6).
+    if (
+        start_offset > 0
+        and remain > gen_len
+        and start_offset < gen_len
+    ):
+        out_len = min(remain, gen_len + start_offset)
     if out_len <= 0:
         start_offset = 0
         out_len = min(gen_len, available)

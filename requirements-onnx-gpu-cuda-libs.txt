@@ -1,0 +1,6 @@
+# CUDA runtime cho onnxruntime-gpu tren Windows (setup [3]/[6] tu cai neu DLL probe fail).
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+nvidia-cuda-runtime-cu12
+nvidia-cufft-cu12
+nvidia-nvjitlink-cu12

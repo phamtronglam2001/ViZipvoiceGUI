@@ -210,7 +210,8 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
             with gr.Tab("Hiệu năng"):
                 gr.Markdown(
                     "Tối ưu ONNX Runtime (tham khảo ZipVoice-Vietnamese-ONNX-GUI). "
-                    "GPU: `setup.bat` → chọn [2]. Env: `ZIPVOICE_ONNX_THREADS`, "
+                    "GPU: `setup.bat` → [3]. Cần `models/vocoder/mel_spec_24khz.onnx` để Vocos chạy ONNX GPU. "
+                    "Env: `ZIPVOICE_ONNX_THREADS`, "
                     "`ZIPVOICE_FORCE_CPU=1`. Không có GPU/DLL → tự fallback CPU."
                 )
                 with gr.Row():

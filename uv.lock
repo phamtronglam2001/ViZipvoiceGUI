@@ -3306,11 +3306,13 @@ onnx = [
     { name = "onnxruntime" },
 ]
 onnx-gpu = [
+    { name = "onnxruntime-gpu" },
+]
+onnx-gpu-cuda = [
     { name = "nvidia-cublas-cu12" },
     { name = "nvidia-cuda-runtime-cu12" },
     { name = "nvidia-cudnn-cu12" },
     { name = "nvidia-cufft-cu12" },
-    { name = "onnxruntime-gpu" },
 ]
 phonemize = [
     { name = "piper-phonemize" },
@@ -3328,10 +3330,10 @@ requires-dist = [
     { name = "librosa", marker = "extra == 'gui'" },
     { name = "librosa", marker = "extra == 'onnx'" },
     { name = "numpy" },
-    { name = "nvidia-cublas-cu12", marker = "extra == 'onnx-gpu'" },
-    { name = "nvidia-cuda-runtime-cu12", marker = "extra == 'onnx-gpu'" },
-    { name = "nvidia-cudnn-cu12", marker = "extra == 'onnx-gpu'" },
-    { name = "nvidia-cufft-cu12", marker = "extra == 'onnx-gpu'" },
+    { name = "nvidia-cublas-cu12", marker = "extra == 'onnx-gpu-cuda'" },
+    { name = "nvidia-cuda-runtime-cu12", marker = "extra == 'onnx-gpu-cuda'" },
+    { name = "nvidia-cudnn-cu12", marker = "extra == 'onnx-gpu-cuda'" },
+    { name = "nvidia-cufft-cu12", marker = "extra == 'onnx-gpu-cuda'" },
     { name = "onnx", marker = "extra == 'export'", specifier = ">=1.16,<1.19" },
     { name = "onnx", marker = "extra == 'gui'", specifier = ">=1.16,<1.19" },
     { name = "onnx", marker = "extra == 'onnx'", specifier = ">=1.16,<1.19" },
@@ -3354,7 +3356,7 @@ requires-dist = [
     { name = "torchaudio" },
     { name = "vocos" },
 ]
-provides-extras = ["gui", "export", "onnx", "onnx-gpu", "g2p", "phonemize"]
+provides-extras = ["gui", "export", "onnx", "onnx-gpu", "onnx-gpu-cuda", "g2p", "phonemize"]
 
 [[package]]
 name = "vocos"

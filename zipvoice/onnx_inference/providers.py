@@ -45,6 +45,33 @@ def _ort_module_dir() -> Path | None:
     return Path(ort_file).resolve().parent
 
 
+def is_cpu_onnxruntime_wheel() -> bool:
+    """True when the CPU onnxruntime wheel is active (Azure EP on Windows)."""
+    eps = ort_available_providers()
+    if not eps:
+        return False
+    if "CUDAExecutionProvider" in eps or "DmlExecutionProvider" in eps:
+        return False
+    if "AzureExecutionProvider" in eps:
+        return True
+    try:
+        import importlib.metadata as md
+
+        has_gpu = True
+        has_cpu = True
+        try:
+            md.version("onnxruntime-gpu")
+        except md.PackageNotFoundError:
+            has_gpu = False
+        try:
+            md.version("onnxruntime")
+        except md.PackageNotFoundError:
+            has_cpu = False
+        return has_cpu and not has_gpu
+    except Exception:
+        return False
+
+
 def is_force_cpu() -> bool:
     return os.environ.get("ZIPVOICE_FORCE_CPU", "").strip().lower() in {
         "1",
@@ -53,50 +80,62 @@ def is_force_cpu() -> bool:
     }
 
 
+def _cuda_library_dirs() -> list[Path]:
+    """Dirs that may contain cudart/cublas/cudnn for ORT CUDA EP (Windows)."""
+    dirs: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        key = str(path.resolve()).lower()
+        if path.is_dir() and key not in seen:
+            seen.add(key)
+            dirs.append(path)
+
+    try:
+        import torch
+
+        if getattr(torch.version, "cuda", None):
+            add(Path(torch.__file__).resolve().parent / "lib")
+    except ImportError:
+        pass
+
+    ort_root = _ort_module_dir()
+    if ort_root is not None:
+        add(ort_root / "capi")
+        nvidia_root = ort_root.parent / "nvidia"
+        if nvidia_root.is_dir():
+            for bin_dir in nvidia_root.glob("*/bin"):
+                add(bin_dir)
+
+    cuda_path = os.environ.get("CUDA_PATH", "").strip()
+    if cuda_path:
+        add(Path(cuda_path) / "bin")
+
+    return dirs
+
+
 def ensure_cuda_runtime_on_path() -> None:
-    """Prepend NVIDIA pip wheel bin dirs so ORT CUDA EP can load DLLs (Windows)."""
+    """Prepend CUDA DLL dirs so ORT can load onnxruntime_providers_cuda.dll."""
     global _cuda_path_prepared
-    if _cuda_path_prepared or sys.platform != "win32":
+    if _cuda_path_prepared:
+        return
+    if sys.platform != "win32":
         _cuda_path_prepared = True
         return
 
-    try:
-        import nvidia.cublas.lib as cublas_lib  # type: ignore[import-untyped]
-
-        dirs: list[Path] = []
-        for mod in (
-            cublas_lib,
-            _optional_nvidia_lib("nvidia.cudnn.lib"),
-            _optional_nvidia_lib("nvidia.cuda_runtime.lib"),
-            _optional_nvidia_lib("nvidia.cufft.lib"),
-        ):
-            if mod is not None:
-                dirs.append(Path(mod.__file__).resolve().parent)
-
-        ort_root = _ort_module_dir()
-        if ort_root is not None:
-            capi = ort_root / "capi"
-            if capi.is_dir():
-                dirs.append(capi)
-
-        prepend = os.pathsep.join(str(d) for d in reversed(dirs) if d.is_dir())
-        if prepend:
-            os.environ["PATH"] = prepend + os.pathsep + os.environ.get("PATH", "")
-    except ImportError:
-        ort_root = _ort_module_dir()
-        if ort_root is not None:
-            capi = ort_root / "capi"
-            if capi.is_dir():
-                os.environ["PATH"] = str(capi) + os.pathsep + os.environ.get("PATH", "")
+    dirs = _cuda_library_dirs()
+    prepend = os.pathsep.join(str(d) for d in reversed(dirs))
+    if prepend:
+        os.environ["PATH"] = prepend + os.pathsep + os.environ.get("PATH", "")
+    add_dll = getattr(os, "add_dll_directory", None)
+    if callable(add_dll):
+        for d in dirs:
+            try:
+                add_dll(str(d))
+            except OSError:
+                pass
 
     _cuda_path_prepared = True
-
-
-def _optional_nvidia_lib(name: str) -> Any | None:
-    try:
-        return __import__(name, fromlist=["lib"])
-    except ImportError:
-        return None
 
 
 def is_cuda_execution_provider_loadable(*, warn: bool = True) -> bool:
@@ -165,7 +204,7 @@ def resolve_ort_providers(
             "CUDA unavailable — using DirectML (may run on Intel iGPU on hybrid laptops)."
         )
     elif "CUDAExecutionProvider" in available:
-        label = "CPU (CUDA DLL thiếu)"
+        label = "CPU (CUDA DLL thiếu — setup [3] hoặc requirements-onnx-gpu-cuda-libs.txt)"
 
     providers.append("CPUExecutionProvider")
     return providers, label
@@ -179,6 +218,12 @@ def provider_status_message(use_gpu: bool, *, force_cpu: bool = False) -> str:
     eps = ort_available_providers()
     if eps is None:
         return _ort_broken_status()
+    if is_cpu_onnxruntime_wheel():
+        return (
+            "CPU (onnxruntime CPU — thiếu GPU wheel) | EPs: "
+            + ", ".join(eps)
+            + " | Chạy setup.bat → [3]"
+        )
     _, label = resolve_ort_providers(use_gpu=True, force_cpu=False)
     return f"{label} | EPs: {', '.join(eps)}"
 
