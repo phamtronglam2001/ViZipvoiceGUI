@@ -35,9 +35,9 @@ from zipvoice.vizipvoice import (
 
 logger = logging.getLogger(__name__)
 
+from zipvoice.onnx_inference.vocoder_onnx import VOCODER_BASELINE, VOCODER_INT4
+
 ZIPVOICE_COMPONENTS = ("text_encoder", "fm_decoder")
-VOCODER_BASELINE = "mel_spec_24khz.onnx"
-VOCODER_INT4 = "mel_spec_24khz_int4.onnx"
 QUANT_MANIFEST = "quantization.json"
 
 

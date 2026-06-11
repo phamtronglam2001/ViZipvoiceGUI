@@ -1,0 +1,2 @@
+# Vocoder mel_spec_24khz(_int4).onnx — ISTFT sau ORT (engine.decode_with_mel_spec_onnx).
+librosa

@@ -123,9 +123,9 @@ pause
 exit /b 0
 
 :check_onnx_deps
-"%VENV_PY%" -c "import onnxruntime as ort; p=getattr(ort,'get_available_providers',None); assert callable(p), 'onnxruntime broken'; p()" >nul 2>&1
+"%VENV_PY%" -c "import onnxruntime as ort; import librosa; p=getattr(ort,'get_available_providers',None); assert callable(p), 'onnxruntime broken'; p()" >nul 2>&1
 if not errorlevel 1 exit /b 0
-echo [LOI] Chua cai ONNX — setup.bat [1] hoac [3].
+echo [LOI] Chua cai ONNX inference — setup.bat [1] hoac [3] ^(can librosa cho vocoder ONNX^).
 exit /b 1
 
 :check_export_deps

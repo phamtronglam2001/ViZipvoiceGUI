@@ -45,9 +45,9 @@ Stack **offline**: tải checkpoint PyTorch một lần, chọn **30 giọng m�
 - 🧩 **Pipeline chuẩn hóa tùy biến** — các bước ghép nối (`soe_vinorm`, dọn dấu câu, `period_break`, `sea_g2p`, …) + tab xem trước.
 - 📝 **Synth theo câu** — tách text dài; điều chỉnh `num_step` / `speed` cho câu 1 từ và 2–4 từ.
 - 🎛️ **Gradio PyTorch** — chọn ref, **tải TXT audiobook**, tab **Hiệu năng** (thiết bị, luồng CPU, FP16), **xuất MP3** qua `ffmpeg/bin`, tham số nâng cao, JSON trạng thái — cùng flow Space; **tự mở browser**.
-- ⚡ **Gradio ONNX** — cùng controls TTS cho `models/onnx` int4; tab **Hiệu năng** (GPU, ORT threads, ép CPU); **sửa mel trim** cho câu ngắn (`run.bat` → [2]).
+- ⚡ **Gradio ONNX** — cùng controls TTS cho `models/onnx` int4 + Vocos ONNX (`mel_spec_24khz.onnx` hoặc `mel_spec_24khz_int4.onnx`); **tải TXT audiobook**, **xuất MP3/ffmpeg** (dùng chung flow PyTorch), tab **Hiệu năng** cuối cùng (GPU, ORT threads, ép CPU); **sửa mel trim** cho câu ngắn (`run.bat` → [2]).
 - 📤 **Gradio export ONNX** — export ZipVoice + Vocos int4 (`run.bat` → [3]).
-- 🚀 **Launcher thống nhất** — `setup.bat` (CPU hoặc GPU) + menu `run.bat` (PyTorch / ONNX / Export / Slint); GPU lỗi → tự fallback CPU — không còn file `.bat` CPU riêng.
+- 🚀 **Launcher thống nhất** — `setup.bat` (chỉ uv, profile [1]–[7]: ONNX/PyTorch CPU hoặc GPU, export) + `run.bat` mở app trực tiếp (không `uv sync`); GPU lỗi → tự fallback CPU — không còn file `.bat` CPU riêng.
 - 🖥️ **Slint GUI (tùy chọn)** — desktop native, không browser.
 - 💾 **CLI + Python** — `infer_vizipvoice`, `ViZipVoiceTTS`, `ViZipVoiceOnnxTTS`, RTF/segments.
 
@@ -102,12 +102,14 @@ zipvoice/
   tokenizer/vi_normalizer.py
 models/ViZipvoice/       # Weights PyTorch + audio/ (30 giọng)
 models/onnx/             # ONNX đã export + tokens.txt
-models/vocoder/          # mel_spec_24khz.onnx
+models/vocoder/          # mel_spec_24khz.onnx hoặc mel_spec_24khz_int4.onnx
 ffmpeg/bin/              # ffmpeg.exe portable cho xuất MP3 (tùy chọn)
 output/                  # WAV / MP3 đã synth
 .venv/                   # virtualenv uv (tạo bởi setup.bat)
-setup.bat                # Cài lần đầu: CPU [1] hoặc GPU [2]
-run.bat                  # Menu: PyTorch :7860 / ONNX :7861 / Export :7862 / Slint
+setup.bat                # Chỉ cài .venv — profile [1]–[7] (ONNX/PyTorch CPU/GPU, export)
+run.bat                  # Menu (không cài thêm): PyTorch :7860 / ONNX :7861 / Export :7862 / Slint
+requirements-onnx-inference.txt   # librosa cho vocoder ONNX ISTFT ([1]/[3])
+requirements-onnx-gpu-cuda-libs.txt  # DLL NVIDIA CUDA khi probe GPU lỗi ([3]/[6])
 ```
 
 </details>
@@ -121,27 +123,36 @@ run.bat                  # Menu: PyTorch :7860 / ONNX :7861 / Export :7862 / Sli
 ```bat
 cd ViZipvoiceGUI
 
-setup.bat              REM lần đầu: [1] CPU (mặc định) hoặc [2] GPU (NVIDIA CUDA)
+setup.bat              REM lần đầu: chọn profile [1]–[7] (mặc định [1] ONNX CPU)
+uv run vizipvoice-download   REM một lần: weights PyTorch + giọng mẫu
 run.bat                REM menu: [1] PyTorch :7860  [2] ONNX :7861  [3] Export :7862  [4] Slint
 ```
 
 **Luồng ONNX** (sau khi PyTorch chạy ổn):
 
 ```bat
+setup.bat              REM [7] cho export, hoặc [3]/[6] cho ONNX GPU
 run.bat                REM chọn [3] Export ONNX → models\onnx + models\vocoder
 run.bat                REM chọn [2] Test ONNX Gradio (:7861)
 ```
 
-> **Đã bỏ:** `setup_local.bat`, `run_local.bat`, `run_onnx_local.bat`, `run_onnx_standalone.bat`, `run_export_gui.bat` — thay bằng **`setup.bat`** + **`run.bat`**.
+> **Đã bỏ:** `setup_local.bat`, `run_local.bat`, `run_onnx_local.bat`, `run_onnx_standalone.bat`, `run_export_gui.bat`, `setup_checks.py` — thay bằng **`setup.bat`** + **`run.bat`**.
 
-### CPU vs GPU (`setup.bat`)
+### Profile cài đặt (`setup.bat`)
 
-| Lựa chọn | Cài gì | Ghi chú |
-|----------|--------|---------|
-| **[1] CPU** (mặc định) | `uv sync` + tải model | Không cần NVIDIA; PyTorch và ONNX Runtime chạy CPU |
-| **[2] GPU** | PyTorch **CUDA cu128** + `onnxruntime-gpu` + DLL CUDA | Tải lớn; cần driver NVIDIA tương thích |
+`setup.bat` chỉ tạo/cập nhật `.venv` (uv-only). **Không** mở app hay tải weights.
 
-GPU lỗi hoặc không có CUDA lúc chạy → app **tự fallback CPU** — không cần file `.bat` CPU riêng.
+| Profile | Cài gì | Ghi chú |
+|---------|--------|---------|
+| **[1] ONNX CPU** (mặc định) | `onnxruntime` + **librosa** (`requirements-onnx-inference.txt`) | Vocoder `mel_spec_*.onnx` → ISTFT sau ORT |
+| **[2] PyTorch CPU** | `uv sync` cơ bản | PyTorch CPU từ lockfile |
+| **[3] ONNX GPU** | `onnxruntime-gpu` + librosa; **probe DLL CUDA** tự động | Probe lỗi → `requirements-onnx-gpu-cuda-libs.txt`; đóng `run.bat` trước nếu DLL bị khóa |
+| **[4] PyTorch GPU** | PyTorch **CUDA cu128** (fallback cu124) | Probe kiểm tra `torch.version.cuda` |
+| **[5] ONNX CPU + PyTorch CPU** | [1] + [2] | Stack CPU đầy đủ |
+| **[6] ONNX GPU + PyTorch GPU** | [4] + [3] | Stack NVIDIA; ghi `.install_mode_onnx` / `.install_mode_pytorch` |
+| **[7] Export ONNX** | `onnx`, `onnxscript`, `librosa` | Cho `run.bat` → [3] export Gradio |
+
+GPU lỗi hoặc không có CUDA lúc chạy → app **tự fallback CPU**. DLL CUDA ONNX load qua `zipvoice.onnx_inference.providers` (`add_dll_directory` + `nvidia/*/bin`).
 
 Tương đương thủ công:
 
@@ -149,18 +160,17 @@ Tương đương thủ công:
 uv sync
 uv run vizipvoice-download
 uv run vizipvoice-local
-uv sync --extra export && uv run vizipvoice-export-gui
-uv sync --extra onnx && uv run vizipvoice-onnx-local
+uv pip install -r requirements-onnx-inference.txt   REM infer ONNX + vocoder
+uv pip install -r requirements-onnx-gpu.txt -r requirements-onnx-gpu-cuda-libs.txt   REM ONNX GPU
+uv pip install onnx onnxscript librosa              REM export [7]
 ```
-
-ONNX GPU: `setup.bat` [2] dùng `requirements-onnx-gpu.txt` và extra **`onnx-gpu`** trong `pyproject.toml`.
 
 ### File `.bat` (Windows)
 
 | File | Vai trò |
 |------|---------|
-| `setup.bat` | Cài lần đầu: `uv sync`, tải model, tùy chọn stack GPU |
-| `run.bat` | Chọn app — PyTorch `:7860`, ONNX `:7861`, Export `:7862`, Slint |
+| `setup.bat` | Chỉ cài deps `.venv` — chọn profile [1]–[7] |
+| `run.bat` | Chọn app — **không `uv sync`**; kiểm tra deps ONNX/export trước khi chạy |
 
 Menu `run.bat`:
 
@@ -212,13 +222,13 @@ uv run vizipvoice-local --host 0.0.0.0 --port 7860
 | **Advanced** | Steps, guidance, speed, chunking, slider hậu xử lý |
 | **Text Normalizer** | Xem trước pipeline trước khi synth |
 
-**ONNX** (`run.bat` → [2]):
+**ONNX** (`run.bat` → [2]) — thứ tab: **TTS (ONNX)** → **Text Normalizer** → **Hiệu năng** (cuối):
 
 | Tab | Nội dung |
 |-----|----------|
-| **Hiệu năng** | GPU (CUDA / DirectML), ép CPU, ORT threads (0 = tự động); đọc `.install_mode_onnx` sau `setup.bat` GPU |
-| **TTS (ONNX)** | Cùng controls synth như PyTorch + thư mục ONNX, int4, vocoder (`models/vocoder/mel_spec_24khz.onnx`) |
+| **TTS (ONNX)** | Cùng controls synth như PyTorch + thư mục ONNX, int4, vocoder (`mel_spec_24khz.onnx` hoặc `mel_spec_24khz_int4.onnx`), **tải TXT audiobook**, accordion **MP3/ffmpeg** |
 | **Text Normalizer** | Tab preview giống PyTorch |
+| **Hiệu năng** | GPU (CUDA / DirectML), ép CPU, ORT threads (0 = tự động); đọc `.install_mode_onnx` sau `setup.bat` → [3] hoặc [6] |
 
 Inference ONNX cắt mel khớp độ dài PyTorch và **căn active-speech** — sửa bleed/artifact trên **câu ngắn** (vd. prompt một từ).
 
@@ -306,7 +316,8 @@ uv run vizipvoice-export-onnx --model-dir models/ViZipvoice --export-root models
 | `models/onnx/text_encoder_int4.onnx` | Text encoder int4 |
 | `models/onnx/fm_decoder_int4.onnx` | FM decoder int4 |
 | `models/onnx/tokens.txt` | Tokenizer ký tự (SimpleTokenizer) |
-| `models/vocoder/mel_spec_24khz.onnx` | Vocos → librosa ISTFT |
+| `models/vocoder/mel_spec_24khz.onnx` | Vocos → librosa ISTFT (FP32) |
+| `models/vocoder/mel_spec_24khz_int4.onnx` | Cùng graph, lượng tử int4 (nhỏ hơn; tự chọn khi có) |
 
 > **Lưu ý:** ViZipVoice dùng tokenizer **ký tự**. **Không** copy bundle ONNX sang [ZipVoice-Vietnamese-ONNX-GUI](https://github.com/phamtronglam2001/ZipVoice-Vietnamese-ONNX-GUI) (app đó dùng **Espeak phoneme**). Chỉ test ONNX trong repo này qua `run.bat` → [2] hoặc `infer_vizipvoice_onnx`.
 
@@ -329,12 +340,12 @@ metrics = tts.synthesize(
 | `VIZIPVOICE_MODEL_DIR` | PyTorch, download | Đổi đường dẫn mặc định `models/ViZipvoice` |
 | `VIZIPVOICE_FFMPEG_DIR` | Gradio PyTorch | Thư mục chứa `ffmpeg.exe` hoặc `bin/ffmpeg.exe` (mặc định `ffmpeg`) |
 | `VIZIPVOICE_ONNX_DIR` | ONNX | Thư mục bundle ONNX đã export |
-| `VIZIPVOICE_VOCODER_ONNX` | ONNX | Đường dẫn `mel_spec_24khz.onnx` |
+| `VIZIPVOICE_VOCODER_ONNX` | ONNX | Đường dẫn `mel_spec_24khz.onnx` hoặc `mel_spec_24khz_int4.onnx` |
 | `ZIPVOICE_ONNX_GPU` | ONNX | `1` / `true` để ưu tiên GPU |
 | `ZIPVOICE_ONNX_THREADS` | ONNX | Số thread ORT mỗi session |
 | `ZIPVOICE_FORCE_CPU` | ONNX | `1` để ép CPU execution provider |
 
-`run.bat` đặt `ZIPVOICE_ONNX_GPU=1` khi `.install_mode_onnx` là `gpu` (từ `setup.bat` → [2]).
+`run.bat` đặt `ZIPVOICE_ONNX_GPU=1` khi `.install_mode_onnx` là `gpu` (từ `setup.bat` → [3] hoặc [6]).
 
 ---
 
@@ -368,10 +379,10 @@ Weights: [contextboxai/ViZipvoice](https://huggingface.co/contextboxai/ViZipvoic
 
 | Thiết bị | Ghi chú |
 |----------|---------|
-| **CUDA** | Cài qua `setup.bat` → [2]; PyTorch FP16 mặc định (tắt trong **Hiệu năng**); RTF tốt nhất |
-| **CPU** | Mặc định `setup.bat` → [1]; không cần NVIDIA; RTF cao hơn (~7× trên desktop thường) |
+| **CUDA** | PyTorch: `setup.bat` → [4] hoặc [6]; FP16 mặc định (tắt trong **Hiệu năng**); RTF tốt nhất |
+| **CPU** | `setup.bat` → [1]/[2]/[5]; không cần NVIDIA; RTF cao hơn (~7× trên desktop thường) |
 | **MPS** | PyTorch `auto` trên Apple Silicon |
-| **ONNX GPU** | `onnxruntime-gpu` + DLL CUDA từ `setup.bat` [2] hoặc `uv sync --extra onnx-gpu`; tự fallback nếu EP không dùng được |
+| **ONNX GPU** | `setup.bat` → [3] hoặc [6]: `onnxruntime-gpu` + probe DLL CUDA (`requirements-onnx-gpu-cuda-libs.txt`); tự fallback nếu EP không dùng được |
 
 **Tự fallback:** PyTorch thử lại CPU nếu load CUDA lỗi; ONNX Runtime fallback khi thiếu GPU/DLL — không cần launcher riêng.
 
@@ -414,7 +425,7 @@ uv sync --extra gui       REM Slint desktop GUI
 uv sync --extra g2p       REM normalizer sea-g2p
 ```
 
-Trên Windows, nên dùng **`setup.bat` → [2]** cho GPU — cài PyTorch cu128 và stack `onnx-gpu` trong một lần.
+Trên Windows, nên dùng **`setup.bat`** profile — [1]/[3] cho ONNX (+ librosa `requirements-onnx-inference.txt`), [3]/[6] cho ONNX GPU với probe DLL, [7] cho export.
 
 ---
 

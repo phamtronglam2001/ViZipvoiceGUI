@@ -45,9 +45,9 @@ The **Gradio GUIs** mirror the [Hugging Face Space](https://huggingface.co/space
 - 🧩 **Configurable normalization pipeline** — composable steps (`soe_vinorm`, spacing cleanup, `period_break`, `sea_g2p`, …) with live preview tab.
 - 📝 **Sentence-aware synthesis** — auto split long text; adaptive `num_step` / `speed` for 1-word and 2–4-word sentences.
 - 🎛️ **Offline Gradio (PyTorch)** — ref picker, **TXT audiobook upload**, **Hiệu năng** (device, CPU threads, FP16), optional **MP3 export** via bundled `ffmpeg/bin`, advanced controls, status JSON; **auto-opens browser**.
-- ⚡ **ONNX Gradio** — same TTS controls as PyTorch for `models/onnx` int4 + Vocos ONNX; dedicated **Hiệu năng** tab (GPU, ORT threads, force CPU); **mel trim fix** for short sentences (`run.bat` → [2]).
+- ⚡ **ONNX Gradio** — same TTS controls as PyTorch for `models/onnx` int4 + Vocos ONNX (`mel_spec_24khz.onnx` or `mel_spec_24khz_int4.onnx`); **TXT audiobook upload**, **MP3/ffmpeg** export (shared with PyTorch app), **Hiệu năng** tab last (GPU, ORT threads, force CPU); **mel trim fix** for short sentences (`run.bat` → [2]).
 - 📤 **ONNX export Gradio** — export ZipVoice + Vocos int4 to `models/onnx` / `models/vocoder` (`run.bat` → [3]).
-- 🚀 **Unified launchers** — `setup.bat` (CPU or GPU) + `run.bat` menu (PyTorch / ONNX / Export / Slint); GPU auto-fallback to CPU — no separate CPU batch files.
+- 🚀 **Unified launchers** — `setup.bat` (uv-only profiles [1]–[7]: ONNX/PyTorch CPU or GPU, export deps) + `run.bat` direct launch (no `uv sync`); GPU auto-fallback to CPU — no separate CPU batch files.
 - 🖥️ **Slint GUI (optional)** — native desktop window for CLI inference, download, and export (no browser).
 - 💾 **CLI + Python wrapper** — `infer_vizipvoice`, `ViZipVoiceTTS`, `ViZipVoiceOnnxTTS`, metrics (RTF, segments).
 
@@ -103,12 +103,14 @@ zipvoice/
   bin/                   # CLI infer / export
 models/ViZipvoice/       # PyTorch weights + audio/ (30 ref voices)
 models/onnx/             # Exported ZipVoice ONNX + tokens.txt
-models/vocoder/          # mel_spec_24khz.onnx
+models/vocoder/          # mel_spec_24khz.onnx or mel_spec_24khz_int4.onnx
 ffmpeg/bin/              # Portable ffmpeg.exe for MP3 export (optional)
 output/                  # Generated WAV / MP3 files
 .venv/                   # uv virtualenv (created by setup.bat)
-setup.bat                # First-time install: CPU [1] or GPU [2]
-run.bat                  # App menu: PyTorch :7860 / ONNX :7861 / Export :7862 / Slint
+setup.bat                # Install .venv only — profiles [1]–[7] (ONNX/PyTorch CPU/GPU, export)
+run.bat                  # App menu (no install): PyTorch :7860 / ONNX :7861 / Export :7862 / Slint
+requirements-onnx-inference.txt   # librosa for ONNX vocoder ISTFT ([1]/[3])
+requirements-onnx-gpu-cuda-libs.txt  # NVIDIA CUDA DLLs when GPU probe fails ([3]/[6])
 ```
 
 </details>
@@ -122,27 +124,36 @@ run.bat                  # App menu: PyTorch :7860 / ONNX :7861 / Export :7862 /
 ```bat
 cd ViZipvoiceGUI
 
-setup.bat              REM first run: [1] CPU (default) or [2] GPU (NVIDIA CUDA)
+setup.bat              REM first run: pick profile [1]–[7] (default [1] ONNX CPU)
+uv run vizipvoice-download   REM once: PyTorch weights + ref voices
 run.bat                REM menu: [1] PyTorch :7860  [2] ONNX :7861  [3] Export :7862  [4] Slint
 ```
 
 **ONNX workflow** (after PyTorch works):
 
 ```bat
+setup.bat              REM [7] for export deps, or [3]/[6] for ONNX GPU
 run.bat                REM choose [3] Export ONNX → models\onnx + models\vocoder
 run.bat                REM choose [2] Test ONNX Gradio (:7861)
 ```
 
-> **Removed launchers:** `setup_local.bat`, `run_local.bat`, `run_onnx_local.bat`, `run_onnx_standalone.bat`, `run_export_gui.bat` — replaced by **`setup.bat`** + **`run.bat`**.
+> **Removed launchers:** `setup_local.bat`, `run_local.bat`, `run_onnx_local.bat`, `run_onnx_standalone.bat`, `run_export_gui.bat`, `setup_checks.py` — replaced by **`setup.bat`** + **`run.bat`**.
 
-### CPU vs GPU setup (`setup.bat`)
+### Setup profiles (`setup.bat`)
 
-| Choice | What gets installed | Notes |
-|--------|---------------------|-------|
-| **[1] CPU** (default) | `uv sync` + model download | No NVIDIA GPU required; PyTorch and ONNX Runtime use CPU |
-| **[2] GPU** | PyTorch **CUDA cu128** + `onnxruntime-gpu` + CUDA DLLs | Large download; needs compatible NVIDIA driver |
+`setup.bat` only creates/updates `.venv` (uv-only). It does **not** launch apps or download model weights.
 
-If GPU setup fails or CUDA is unavailable at runtime, apps **fall back to CPU automatically** — no separate CPU batch files.
+| Profile | What gets installed | Notes |
+|---------|---------------------|-------|
+| **[1] ONNX CPU** (default) | `onnxruntime` + **librosa** (`requirements-onnx-inference.txt`) | Vocoder `mel_spec_*.onnx` ISTFT after ORT |
+| **[2] PyTorch CPU** | Base `uv sync` only | CPU PyTorch from lockfile |
+| **[3] ONNX GPU** | `onnxruntime-gpu` + librosa; auto **CUDA DLL probe** | On probe fail → `requirements-onnx-gpu-cuda-libs.txt`; close `run.bat` first if DLL locked |
+| **[4] PyTorch GPU** | PyTorch **CUDA cu128** (fallback cu124) | Probe verifies `torch.version.cuda` |
+| **[5] ONNX CPU + PyTorch CPU** | [1] + [2] | Combined CPU stack |
+| **[6] ONNX GPU + PyTorch GPU** | [4] + [3] | Full NVIDIA stack; writes `.install_mode_onnx` / `.install_mode_pytorch` |
+| **[7] Export ONNX** | `onnx`, `onnxscript`, `librosa` | For `run.bat` → [3] export Gradio |
+
+If GPU setup fails or CUDA is unavailable at runtime, apps **fall back to CPU automatically**. ONNX CUDA DLLs are loaded via `zipvoice.onnx_inference.providers` (`add_dll_directory` + `nvidia/*/bin`).
 
 Manual equivalent:
 
@@ -150,18 +161,17 @@ Manual equivalent:
 uv sync
 uv run vizipvoice-download
 uv run vizipvoice-local
-uv sync --extra export && uv run vizipvoice-export-gui
-uv sync --extra onnx && uv run vizipvoice-onnx-local
+uv pip install -r requirements-onnx-inference.txt   REM ONNX infer + vocoder
+uv pip install -r requirements-onnx-gpu.txt -r requirements-onnx-gpu-cuda-libs.txt   REM ONNX GPU
+uv pip install onnx onnxscript librosa              REM export [7]
 ```
-
-GPU ONNX path: `setup.bat` option [2] uses `requirements-onnx-gpu.txt` and `pyproject.toml` extra **`onnx-gpu`**.
 
 ### Launchers (Windows)
 
 | Batch file | Role |
 |------------|------|
-| `setup.bat` | First-time install: `uv sync`, download model, optional GPU stack |
-| `run.bat` | App picker — PyTorch TTS `:7860`, ONNX `:7861`, Export `:7862`, Slint desktop |
+| `setup.bat` | Install `.venv` deps only — pick profile [1]–[7] |
+| `run.bat` | App picker — **no `uv sync`**; checks ONNX/export deps before launch |
 
 `run.bat` menu:
 
@@ -213,13 +223,13 @@ Set `VIZIPVOICE_MODEL_DIR` to override the default `models/ViZipvoice` path.
 | **Advanced** | Steps, guidance, speed, chunking, post-process ms sliders |
 | **Text Normalizer** | Pipeline preview before synthesis |
 
-**ONNX** (`run.bat` → [2]):
+**ONNX** (`run.bat` → [2]) — tab order: **TTS (ONNX)** → **Text Normalizer** → **Hiệu năng** (last):
 
 | Tab | Contents |
 |-----|----------|
-| **Hiệu năng** | GPU (CUDA / DirectML), force CPU, ORT threads (0 = auto); reads `.install_mode_onnx` after GPU `setup.bat` |
-| **TTS (ONNX)** | Same synthesis controls as PyTorch + ONNX model dir, int4 toggle, vocoder path (`models/vocoder/mel_spec_24khz.onnx`) |
+| **TTS (ONNX)** | Same synthesis controls as PyTorch + ONNX model dir, int4 toggle, vocoder (`mel_spec_24khz.onnx` or `mel_spec_24khz_int4.onnx`), **TXT audiobook upload**, **MP3/ffmpeg** accordion |
 | **Text Normalizer** | Same preview tab |
+| **Hiệu năng** | GPU (CUDA / DirectML), force CPU, ORT threads (0 = auto); reads `.install_mode_onnx` after `setup.bat` → [3] or [6] |
 
 ONNX inference trims generated mel to match PyTorch duration and **active-speech alignment** — fixes bleed/artifacts on **short sentences** (e.g. one-word prompts).
 
@@ -308,7 +318,8 @@ Output layout:
 | `models/onnx/fm_decoder_int4.onnx` | Flow-matching decoder (int4) |
 | `models/onnx/tokens.txt` | Character tokenizer (SimpleTokenizer) |
 | `models/onnx/config.json` | Model metadata |
-| `models/vocoder/mel_spec_24khz.onnx` | Vocos mag/x/y → librosa ISTFT |
+| `models/vocoder/mel_spec_24khz.onnx` | Vocos mag/x/y → librosa ISTFT (FP32) |
+| `models/vocoder/mel_spec_24khz_int4.onnx` | Same graph, int4-quantized (smaller; auto-resolved when present) |
 
 > **Important:** ViZipVoice uses a **character** tokenizer (`SimpleTokenizer`). Do **not** copy this ONNX bundle into [ZipVoice-Vietnamese-ONNX-GUI](https://github.com/phamtronglam2001/ZipVoice-Vietnamese-ONNX-GUI) — that app expects **Espeak phoneme** tokens. Test ViZipVoice ONNX only via `run.bat` → [2] or `infer_vizipvoice_onnx` in this repo.
 
@@ -331,12 +342,12 @@ metrics = tts.synthesize(
 | `VIZIPVOICE_MODEL_DIR` | PyTorch, download | Override default `models/ViZipvoice` |
 | `VIZIPVOICE_FFMPEG_DIR` | PyTorch Gradio | Folder containing `ffmpeg.exe` or `bin/ffmpeg.exe` (default `ffmpeg`) |
 | `VIZIPVOICE_ONNX_DIR` | ONNX | Exported ONNX bundle directory |
-| `VIZIPVOICE_VOCODER_ONNX` | ONNX | Path to `mel_spec_24khz.onnx` |
+| `VIZIPVOICE_VOCODER_ONNX` | ONNX | Path to `mel_spec_24khz.onnx` or `mel_spec_24khz_int4.onnx` |
 | `ZIPVOICE_ONNX_GPU` | ONNX | `1` / `true` to prefer GPU providers |
 | `ZIPVOICE_ONNX_THREADS` | ONNX | ORT intra-op threads per session |
 | `ZIPVOICE_FORCE_CPU` | ONNX | `1` to force CPU execution provider |
 
-`run.bat` sets `ZIPVOICE_ONNX_GPU=1` when `.install_mode_onnx` contains `gpu` (from `setup.bat` → [2]).
+`run.bat` sets `ZIPVOICE_ONNX_GPU=1` when `.install_mode_onnx` contains `gpu` (from `setup.bat` → [3] or [6]).
 
 ---
 
@@ -370,10 +381,10 @@ Weights: [contextboxai/ViZipvoice](https://huggingface.co/contextboxai/ViZipvoic
 
 | Device | Notes |
 |--------|-------|
-| **CUDA** | Install via `setup.bat` → [2]; PyTorch FP16 on by default (toggle in **Hiệu năng**); best RTF |
-| **CPU** | Default `setup.bat` → [1]; works without NVIDIA; expect higher RTF (~7× on typical desktop) |
+| **CUDA** | PyTorch: `setup.bat` → [4] or [6]; FP16 on by default (toggle in **Hiệu năng**); best RTF |
+| **CPU** | `setup.bat` → [1]/[2]/[5]; works without NVIDIA; expect higher RTF (~7× on typical desktop) |
 | **MPS** | PyTorch `auto` device on Apple Silicon |
-| **ONNX GPU** | `onnxruntime-gpu` + CUDA DLLs from `setup.bat` [2] or `uv sync --extra onnx-gpu`; auto-fallback if EP unavailable |
+| **ONNX GPU** | `setup.bat` → [3] or [6]: `onnxruntime-gpu` + CUDA DLL probe (`requirements-onnx-gpu-cuda-libs.txt`); auto-fallback if EP unavailable |
 
 **Auto fallback:** PyTorch retries on CPU if CUDA load fails; ONNX Runtime falls back when GPU/DLLs missing — no extra launchers.
 
@@ -416,7 +427,7 @@ uv sync --extra gui       REM Slint desktop GUI
 uv sync --extra g2p       REM sea-g2p normalizer
 ```
 
-On Windows, prefer **`setup.bat` → [2]** for GPU — it reinstalls PyTorch cu128 and applies the `onnx-gpu` stack in one flow.
+On Windows, prefer **`setup.bat`** profiles — [1]/[3] for ONNX (+ `requirements-onnx-inference.txt` librosa), [3]/[6] for ONNX GPU with DLL probe, [7] for export deps.
 
 ---
 

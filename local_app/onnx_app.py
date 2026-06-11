@@ -15,23 +15,35 @@ import gradio as gr
 from local_app.branding import AUTHOR_LINE, FORK_PURPOSE, HF_MODEL_URL, HF_SPACE_URL
 from local_app.app import (
     DEMO_TEXT,
+    MP3_BITRATE_CHOICES,
+    default_ffmpeg_dir_str,
     default_ref,
+    ffmpeg_available,
+    format_ffmpeg_status,
     load_ref_prompts,
+    load_txt_for_preview,
+    parse_mp3_bitrate,
     parse_pipeline_arg,
     preview_normalizer,
+    refresh_ffmpeg_ui,
     refs_by_label,
+    resolve_ffmpeg_dir,
+    resolve_ffmpeg_path,
     resolve_model_dir,
     select_ref,
+    wav_to_mp3,
 )
 from local_app.ref_audio_bundle import sync_bundled_ref_audio
 from zipvoice.onnx_inference.engine import get_onnx_tts
+from zipvoice.onnx_inference.vocoder_onnx import VOCODER_BASELINE, VOCODER_INT4
 from zipvoice.onnx_inference.providers import predict_runtime_device_summary
 from zipvoice.onnx_inference.runtime import default_onnx_threads
 from zipvoice.tokenizer.vi_normalizer import DEFAULT_PIPELINE, STEP_LABELS, format_pipeline_label
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ONNX_DIR = REPO_ROOT / "models" / "onnx"
-DEFAULT_VOCODER_ONNX = REPO_ROOT / "models" / "vocoder" / "mel_spec_24khz.onnx"
+DEFAULT_VOCODER_ONNX = REPO_ROOT / "models" / "vocoder" / VOCODER_BASELINE
+DEFAULT_VOCODER_INT4 = REPO_ROOT / "models" / "vocoder" / VOCODER_INT4
 OUTPUT_DIR = REPO_ROOT / "output" / "gradio_onnx"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -60,6 +72,8 @@ def resolve_vocoder_onnx_path() -> str:
         return env
     if DEFAULT_VOCODER_ONNX.is_file():
         return str(DEFAULT_VOCODER_ONNX)
+    if DEFAULT_VOCODER_INT4.is_file():
+        return str(DEFAULT_VOCODER_INT4)
     return ""
 
 
@@ -75,7 +89,7 @@ def onnx_ready_report(onnx_dir: Path) -> str:
         lines.append(f"- `{name}`: {'OK' if ok else '**thiếu**'}")
     voc = resolve_vocoder_onnx_path()
     lines.append(
-        f"- vocoder: `{'OK — ' + voc if voc else 'thiếu models/vocoder/mel_spec_24khz.onnx'}`"
+        f"- vocoder: `{'OK — ' + voc if voc else f'thiếu models/vocoder/{VOCODER_BASELINE} hoặc {VOCODER_INT4}'}`"
     )
     return "\n".join(lines)
 
@@ -88,6 +102,8 @@ def generate(
     use_onnx_gpu: bool,
     force_cpu: bool,
     onnx_threads: int,
+    ffmpeg_dir: str,
+    mp3_bitrate_choice: str,
     ref_label: str,
     prompt_audio: str | None,
     prompt_text: str,
@@ -159,6 +175,25 @@ def generate(
         raise gr.Error(str(exc)) from exc
 
     elapsed = time.time() - start
+    ffmpeg = resolve_ffmpeg_path(ffmpeg_dir)
+    if ffmpeg is not None:
+        mp3_file = wav_to_mp3(
+            output_path,
+            parse_mp3_bitrate(mp3_bitrate_choice),
+            ffmpeg,
+        )
+        try:
+            output_path.unlink(missing_ok=True)
+        except OSError:
+            logging.warning("Could not remove temp WAV %s", output_path)
+        deliver_path = str(mp3_file)
+        output_format = "mp3"
+        output_bitrate_kbps = parse_mp3_bitrate(mp3_bitrate_choice)
+    else:
+        deliver_path = str(output_path)
+        output_format = "wav"
+        output_bitrate_kbps = None
+
     status = {
         "backend": "ONNX",
         "onnx_dir": str(onnx_path),
@@ -176,8 +211,16 @@ def generate(
         "rtf": round(metrics.get("rtf", 0.0), 4),
         "elapsed_seconds": round(elapsed, 3),
         "segment_settings": metrics.get("segment_settings", []),
+        "output_format": output_format,
+        "output_path": deliver_path,
     }
-    return str(output_path), json.dumps(status, ensure_ascii=False, indent=2)
+    if output_bitrate_kbps is not None:
+        status["mp3_bitrate_kbps"] = output_bitrate_kbps
+    if ffmpeg is not None:
+        status["ffmpeg"] = str(ffmpeg)
+    else:
+        status["ffmpeg_dir"] = str(resolve_ffmpeg_dir(ffmpeg_dir))
+    return deliver_path, json.dumps(status, ensure_ascii=False, indent=2)
 
 
 def refresh_onnx_perf_ui(use_onnx_gpu: bool, force_cpu: bool) -> str:
@@ -195,6 +238,9 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
     default_pipeline_str = ", ".join(DEFAULT_PIPELINE)
     norm_choices = [key for key in STEP_LABELS if key != "none"]
     default_vocoder = resolve_vocoder_onnx_path()
+    default_ffmpeg_dir = default_ffmpeg_dir_str()
+    has_ffmpeg = ffmpeg_available(default_ffmpeg_dir)
+    output_label = "Output (MP3)" if has_ffmpeg else "Output (WAV)"
 
     with gr.Blocks(title="ViZipVoice ONNX") as demo:
         gr.Markdown(
@@ -207,44 +253,6 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
         )
 
         with gr.Tabs():
-            with gr.Tab("Hiệu năng"):
-                gr.Markdown(
-                    "Tối ưu ONNX Runtime (tham khảo ZipVoice-Vietnamese-ONNX-GUI). "
-                    "GPU: `setup.bat` → [3]. Cần `models/vocoder/mel_spec_24khz.onnx` để Vocos chạy ONNX GPU. "
-                    "Env: `ZIPVOICE_ONNX_THREADS`, "
-                    "`ZIPVOICE_FORCE_CPU=1`. Không có GPU/DLL → tự fallback CPU."
-                )
-                with gr.Row():
-                    use_onnx_gpu = gr.Checkbox(
-                        value=default_use_onnx_gpu(),
-                        label="GPU (CUDA / DirectML)",
-                        info="Giữ workers=1 khi dùng GPU",
-                    )
-                    force_cpu = gr.Checkbox(
-                        value=False,
-                        label="Ép CPU",
-                    )
-                onnx_threads = gr.Slider(
-                    0,
-                    min(16, os.cpu_count() or 8),
-                    value=0,
-                    step=1,
-                    label="ORT threads (0 = tự động)",
-                    info=f"Mặc định: {default_onnx_threads()}",
-                )
-                runtime_device = gr.Textbox(
-                    label="Thiết bị ONNX Runtime",
-                    value=predict_runtime_device_summary(default_use_onnx_gpu()),
-                    interactive=False,
-                    lines=2,
-                )
-                for ctrl in (use_onnx_gpu, force_cpu):
-                    ctrl.change(
-                        fn=refresh_onnx_perf_ui,
-                        inputs=[use_onnx_gpu, force_cpu],
-                        outputs=[runtime_device],
-                    )
-
             with gr.Tab("TTS (ONNX)"):
                 with gr.Row():
                     with gr.Column(scale=1):
@@ -256,7 +264,7 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
                         vocoder_onnx = gr.Textbox(
                             value=default_vocoder,
                             label="Vocoder ONNX path",
-                            placeholder="models/vocoder/mel_spec_24khz.onnx",
+                            placeholder=f"models/vocoder/{VOCODER_BASELINE} hoặc {VOCODER_INT4}",
                         )
                         ref_label = gr.Dropdown(
                             choices=choices,
@@ -275,8 +283,33 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
                         )
 
                     with gr.Column(scale=1):
+                        txt_upload = gr.File(
+                            label="Tải TXT (audiobook)",
+                            file_types=[".txt"],
+                            type="filepath",
+                        )
                         text = gr.Textbox(value=DEMO_TEXT, lines=8, label="Text")
                         generate_btn = gr.Button("Generate (ONNX)", variant="primary")
+
+                        with gr.Accordion("Xuất MP3 / ffmpeg", open=has_ffmpeg):
+                            ffmpeg_dir = gr.Textbox(
+                                value=default_ffmpeg_dir,
+                                label="Thư mục ffmpeg",
+                                info=(
+                                    "Tuyệt đối hoặc tương đối repo "
+                                    "(vd. ffmpeg, ffmpeg/bin, D:/tools/ffmpeg)"
+                                ),
+                            )
+                            ffmpeg_status = gr.Markdown(
+                                format_ffmpeg_status(default_ffmpeg_dir)
+                            )
+                            mp3_bitrate = gr.Dropdown(
+                                choices=list(MP3_BITRATE_CHOICES),
+                                value=MP3_BITRATE_CHOICES[0],
+                                label="Bitrate MP3",
+                                info="24 kHz mono",
+                                visible=has_ffmpeg,
+                            )
 
                         with gr.Accordion("Advanced", open=False):
                             with gr.Row():
@@ -314,44 +347,8 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
                                 fade_out_ms = gr.Slider(0, 500, value=80, step=10, label="Fade out ms")
 
                 with gr.Row():
-                    output_audio = gr.Audio(type="filepath", label="Output")
+                    output_audio = gr.Audio(type="filepath", label=output_label)
                     status = gr.Textbox(lines=14, label="Status")
-
-                ref_label.change(
-                    fn=lambda label: select_ref(model_dir_str, label),
-                    inputs=[ref_label],
-                    outputs=[prompt_audio, prompt_text],
-                )
-                generate_btn.click(
-                    fn=lambda *args: generate(model_dir_str, *args),
-                    inputs=[
-                        onnx_model_dir,
-                        use_int4,
-                        vocoder_onnx,
-                        use_onnx_gpu,
-                        force_cpu,
-                        onnx_threads,
-                        ref_label,
-                        prompt_audio,
-                        prompt_text,
-                        text,
-                        num_step,
-                        guidance_scale,
-                        speed,
-                        t_shift,
-                        max_duration,
-                        seed,
-                        normalize_vietnamese,
-                        norm_pipeline_raw,
-                        split_sentences,
-                        remove_long_sil,
-                        crossfade_ms,
-                        silence_ms,
-                        fade_in_ms,
-                        fade_out_ms,
-                    ],
-                    outputs=[output_audio, status],
-                )
 
             with gr.Tab("Text Normalizer"):
                 gr.Markdown(
@@ -376,6 +373,92 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
                     inputs=[norm_input, norm_pipeline_preview, norm_enabled],
                     outputs=[norm_output],
                 )
+
+            with gr.Tab("Hiệu năng"):
+                gr.Markdown(
+                    "Tối ưu ONNX Runtime (tham khảo ZipVoice-Vietnamese-ONNX-GUI). "
+                    f"GPU: `setup.bat` → [3]. Vocos ONNX GPU: `models/vocoder/{VOCODER_BASELINE}` hoặc `{VOCODER_INT4}`. "
+                    "Env: `ZIPVOICE_ONNX_THREADS`, "
+                    "`ZIPVOICE_FORCE_CPU=1`. Không có GPU/DLL → tự fallback CPU."
+                )
+                with gr.Row():
+                    use_onnx_gpu = gr.Checkbox(
+                        value=default_use_onnx_gpu(),
+                        label="GPU (CUDA / DirectML)",
+                        info="Giữ workers=1 khi dùng GPU",
+                    )
+                    force_cpu = gr.Checkbox(
+                        value=False,
+                        label="Ép CPU",
+                    )
+                onnx_threads = gr.Slider(
+                    0,
+                    min(16, os.cpu_count() or 8),
+                    value=0,
+                    step=1,
+                    label="ORT threads (0 = tự động)",
+                    info=f"Mặc định: {default_onnx_threads()}",
+                )
+                runtime_device = gr.Textbox(
+                    label="Thiết bị ONNX Runtime",
+                    value=predict_runtime_device_summary(default_use_onnx_gpu()),
+                    interactive=False,
+                    lines=2,
+                )
+                for ctrl in (use_onnx_gpu, force_cpu):
+                    ctrl.change(
+                        fn=refresh_onnx_perf_ui,
+                        inputs=[use_onnx_gpu, force_cpu],
+                        outputs=[runtime_device],
+                    )
+
+        txt_upload.change(
+            fn=load_txt_for_preview,
+            inputs=[txt_upload],
+            outputs=[text],
+        )
+        ffmpeg_dir.change(
+            fn=refresh_ffmpeg_ui,
+            inputs=[ffmpeg_dir],
+            outputs=[mp3_bitrate, output_audio, ffmpeg_status],
+        )
+        ref_label.change(
+            fn=lambda label: select_ref(model_dir_str, label),
+            inputs=[ref_label],
+            outputs=[prompt_audio, prompt_text],
+        )
+        generate_btn.click(
+            fn=lambda *args: generate(model_dir_str, *args),
+            inputs=[
+                onnx_model_dir,
+                use_int4,
+                vocoder_onnx,
+                use_onnx_gpu,
+                force_cpu,
+                onnx_threads,
+                ffmpeg_dir,
+                mp3_bitrate,
+                ref_label,
+                prompt_audio,
+                prompt_text,
+                text,
+                num_step,
+                guidance_scale,
+                speed,
+                t_shift,
+                max_duration,
+                seed,
+                normalize_vietnamese,
+                norm_pipeline_raw,
+                split_sentences,
+                remove_long_sil,
+                crossfade_ms,
+                silence_ms,
+                fade_in_ms,
+                fade_out_ms,
+            ],
+            outputs=[output_audio, status],
+        )
 
     return demo
 

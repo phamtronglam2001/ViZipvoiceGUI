@@ -97,9 +97,11 @@ if errorlevel 1 goto :fail
 goto :ok
 
 :onnx_cpu
-echo [uv pip] onnxruntime CPU...
+echo [uv pip] onnxruntime CPU + librosa ^(vocoder mel_spec ONNX^)...
 uv pip uninstall onnxruntime-gpu
 uv pip install "onnxruntime>=1.18,<1.24"
+if errorlevel 1 exit /b 1
+uv pip install -r requirements-onnx-inference.txt
 exit /b %ERRORLEVEL%
 
 :onnx_gpu
@@ -115,6 +117,8 @@ if errorlevel 1 (
     if errorlevel 1 uv pip install -r requirements-onnx-gpu-cuda-libs.txt
     call :check_onnx_gpu_dll
 )
+echo [uv pip] librosa ^(vocoder mel_spec ONNX^)...
+uv pip install -r requirements-onnx-inference.txt
 exit /b %ERRORLEVEL%
 
 :pytorch_gpu

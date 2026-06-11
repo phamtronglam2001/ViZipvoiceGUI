@@ -13,6 +13,8 @@ import numpy as np
 import onnxruntime as ort
 import torch
 
+from zipvoice.onnx_inference.vocoder_onnx import VOCODER_BASELINE, VOCODER_INT4
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ONNX_DIR = REPO_ROOT / "models" / "onnx"
 
@@ -95,8 +97,10 @@ def resolve_vocoder_onnx(onnx_dir: Path, vocoder_onnx: str | None) -> Path | Non
             return path
 
     candidates = [
-        onnx_dir.parent / "vocoder" / "mel_spec_24khz.onnx",
-        onnx_dir / "mel_spec_24khz.onnx",
+        onnx_dir.parent / "vocoder" / VOCODER_BASELINE,
+        onnx_dir / VOCODER_BASELINE,
+        onnx_dir.parent / "vocoder" / VOCODER_INT4,
+        onnx_dir / VOCODER_INT4,
         onnx_dir / "vocos_decoder.onnx",
         onnx_dir / "vocos_decoder_int4.onnx",
     ]

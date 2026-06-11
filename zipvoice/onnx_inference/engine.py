@@ -24,6 +24,7 @@ from zipvoice.onnx_inference.providers import (
     provider_status_message,
     session_active_provider,
 )
+from zipvoice.onnx_inference.vocoder_onnx import VOCODER_BASELINE, VOCODER_INT4
 from zipvoice.onnx_inference.runtime import (
     create_inference_session,
     make_session_options,
@@ -70,8 +71,10 @@ def resolve_vocoder_onnx(onnx_dir: Path, vocoder_onnx: str | Path | None) -> Pat
             return path
 
     candidates = [
-        onnx_dir.parent / "vocoder" / "mel_spec_24khz.onnx",
-        onnx_dir / "mel_spec_24khz.onnx",
+        onnx_dir.parent / "vocoder" / VOCODER_BASELINE,
+        onnx_dir / VOCODER_BASELINE,
+        onnx_dir.parent / "vocoder" / VOCODER_INT4,
+        onnx_dir / VOCODER_INT4,
     ]
     for path in candidates:
         if path.is_file():
