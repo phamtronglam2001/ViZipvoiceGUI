@@ -119,18 +119,18 @@ pause
 exit /b 0
 
 :check_onnx_deps
-uv run python -c "import onnxruntime" >nul 2>&1
+uv run python -c "import onnxruntime as ort; p=getattr(ort,'get_available_providers',None); assert callable(p), 'onnxruntime broken'; p()" >nul 2>&1
 if not errorlevel 1 exit /b 0
-echo [LOI] Chua cai ONNX dependencies ^(onnxruntime^).
+echo [LOI] Chua cai ONNX dependencies ^(onnxruntime^) hoac cai dat bi loi.
 echo       Chay setup.bat de cai --extra onnx.
 echo       Neu setup.bat bao "Access is denied" tren file .dll:
 echo         dong tat ca cua so Gradio/Python cu roi chay setup.bat lai.
 exit /b 1
 
 :check_export_deps
-uv run python -c "import onnx, onnxruntime" >nul 2>&1
+uv run python -c "import onnx, onnxruntime as ort; p=getattr(ort,'get_available_providers',None); assert callable(p), 'onnxruntime broken'; p()" >nul 2>&1
 if not errorlevel 1 exit /b 0
-echo [LOI] Chua cai export dependencies ^(onnx, onnxruntime^).
+echo [LOI] Chua cai export dependencies ^(onnx, onnxruntime^) hoac cai dat bi loi.
 echo       Chay setup.bat de cai --extra export.
 echo       Neu setup.bat bao "Access is denied" tren file .dll:
 echo         dong tat ca cua so Gradio/Python cu roi chay setup.bat lai.

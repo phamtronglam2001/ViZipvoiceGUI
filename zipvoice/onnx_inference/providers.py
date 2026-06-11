@@ -18,6 +18,33 @@ _cuda_loadable: bool | None = None
 _cuda_path_prepared: bool = False
 
 
+def ort_available_providers() -> list[str] | None:
+    """Return ORT execution providers, or None if onnxruntime is missing/broken."""
+    getter = getattr(ort, "get_available_providers", None)
+    if not callable(getter):
+        return None
+    try:
+        return list(getter())
+    except Exception:
+        logger.exception("onnxruntime get_available_providers failed")
+        return None
+
+
+def is_ort_usable() -> bool:
+    return ort_available_providers() is not None
+
+
+def _ort_broken_status() -> str:
+    return "CPU (onnxruntime lỗi — chạy setup.bat để cài lại)"
+
+
+def _ort_module_dir() -> Path | None:
+    ort_file = getattr(ort, "__file__", None)
+    if not ort_file:
+        return None
+    return Path(ort_file).resolve().parent
+
+
 def is_force_cpu() -> bool:
     return os.environ.get("ZIPVOICE_FORCE_CPU", "").strip().lower() in {
         "1",
@@ -46,17 +73,21 @@ def ensure_cuda_runtime_on_path() -> None:
             if mod is not None:
                 dirs.append(Path(mod.__file__).resolve().parent)
 
-        capi = Path(ort.__file__).resolve().parent / "capi"
-        if capi.is_dir():
-            dirs.append(capi)
+        ort_root = _ort_module_dir()
+        if ort_root is not None:
+            capi = ort_root / "capi"
+            if capi.is_dir():
+                dirs.append(capi)
 
         prepend = os.pathsep.join(str(d) for d in reversed(dirs) if d.is_dir())
         if prepend:
             os.environ["PATH"] = prepend + os.pathsep + os.environ.get("PATH", "")
     except ImportError:
-        capi = Path(ort.__file__).resolve().parent / "capi"
-        if capi.is_dir():
-            os.environ["PATH"] = str(capi) + os.pathsep + os.environ.get("PATH", "")
+        ort_root = _ort_module_dir()
+        if ort_root is not None:
+            capi = ort_root / "capi"
+            if capi.is_dir():
+                os.environ["PATH"] = str(capi) + os.pathsep + os.environ.get("PATH", "")
 
     _cuda_path_prepared = True
 
@@ -73,13 +104,18 @@ def is_cuda_execution_provider_loadable(*, warn: bool = True) -> bool:
     if _cuda_loadable is not None:
         return _cuda_loadable
 
-    if "CUDAExecutionProvider" not in ort.get_available_providers():
+    available = ort_available_providers()
+    if available is None or "CUDAExecutionProvider" not in available:
         _cuda_loadable = False
         return False
 
     ensure_cuda_runtime_on_path()
     try:
-        capi = Path(ort.__file__).resolve().parent / "capi"
+        ort_root = _ort_module_dir()
+        if ort_root is None:
+            _cuda_loadable = False
+            return False
+        capi = ort_root / "capi"
         dll = capi / "onnxruntime_providers_cuda.dll"
         if dll.is_file():
             import ctypes
@@ -103,7 +139,11 @@ def resolve_ort_providers(
     if force_cpu or is_force_cpu() or not use_gpu:
         return ["CPUExecutionProvider"], "CPU"
 
-    available = set(ort.get_available_providers())
+    eps = ort_available_providers()
+    if eps is None:
+        return ["CPUExecutionProvider"], "CPU (onnxruntime lỗi)"
+
+    available = set(eps)
     providers: list[ProviderEntry] = []
     label = "CPU (fallback)"
 
@@ -136,8 +176,10 @@ def provider_status_message(use_gpu: bool, *, force_cpu: bool = False) -> str:
         return "CPU (ZIPVOICE_FORCE_CPU)"
     if not use_gpu:
         return "CPU (GPU tắt trong GUI)"
+    eps = ort_available_providers()
+    if eps is None:
+        return _ort_broken_status()
     _, label = resolve_ort_providers(use_gpu=True, force_cpu=False)
-    eps = ort.get_available_providers()
     return f"{label} | EPs: {', '.join(eps)}"
 
 
