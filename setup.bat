@@ -97,6 +97,9 @@ if exist "models\ViZipvoice\config.json" (
         echo            Kiem tra thu muc models\ViZipvoice
     )
 )
+echo.
+echo Dong bo ref audio bundled ^(assets\ref_audio^)...
+uv run python -c "from pathlib import Path; from local_app.ref_audio_bundle import sync_bundled_ref_audio; sync_bundled_ref_audio(Path('models/ViZipvoice'))"
 exit /b 0
 
 :install_pytorch_gpu

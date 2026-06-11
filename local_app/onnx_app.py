@@ -23,6 +23,7 @@ from local_app.app import (
     resolve_model_dir,
     select_ref,
 )
+from local_app.ref_audio_bundle import sync_bundled_ref_audio
 from zipvoice.onnx_inference.engine import get_onnx_tts
 from zipvoice.onnx_inference.providers import predict_runtime_device_summary
 from zipvoice.onnx_inference.runtime import default_onnx_threads
@@ -406,11 +407,16 @@ def main() -> None:
             "Export trước: run.bat → [3] hoặc uv run vizipvoice-export-onnx ..."
         )
 
+    sync_bundled_ref_audio(model_dir)
+    load_ref_prompts.cache_clear()
     prompts = load_ref_prompts(str(model_dir))
     allowed = {str(Path(item.audio_path).resolve().parent) for item in prompts}
     allowed.add(str(OUTPUT_DIR.resolve()))
     allowed.add(str(model_dir))
     allowed.add(str(onnx_dir))
+    bundled_ref = (Path(__file__).resolve().parents[1] / "assets" / "ref_audio").resolve()
+    if bundled_ref.is_dir():
+        allowed.add(str(bundled_ref))
     voc = resolve_vocoder_onnx_path()
     if voc:
         allowed.add(str(Path(voc).resolve().parent))

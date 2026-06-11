@@ -23,6 +23,7 @@ from typing import Optional
 import gradio as gr
 
 from local_app.branding import AUTHOR_LINE, FORK_PURPOSE, HF_MODEL_URL, HF_SPACE_URL
+from local_app.ref_audio_bundle import sync_bundled_ref_audio
 from zipvoice.tokenizer.vi_normalizer import (
     DEFAULT_PIPELINE,
     STEP_LABELS,
@@ -667,10 +668,15 @@ def main() -> None:
             "Chạy: uv run vizipvoice-download"
         )
 
+    sync_bundled_ref_audio(model_dir)
+    load_ref_prompts.cache_clear()
     prompts = load_ref_prompts(str(model_dir))
     allowed = {str(Path(item.audio_path).resolve().parent) for item in prompts}
     allowed.add(str(OUTPUT_DIR.resolve()))
     allowed.add(str(model_dir))
+    bundled_ref = (REPO_ROOT / "assets" / "ref_audio").resolve()
+    if bundled_ref.is_dir():
+        allowed.add(str(bundled_ref))
 
     demo = build_app(model_dir)
     demo.queue(max_size=4).launch(

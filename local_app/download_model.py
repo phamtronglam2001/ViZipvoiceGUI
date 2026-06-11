@@ -9,6 +9,8 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
+from local_app.ref_audio_bundle import sync_bundled_ref_audio
+
 DEFAULT_REPO = "contextboxai/ViZipvoice"
 
 # Copied into the HF model repo for standalone use — redundant when this git repo is installed.
@@ -57,6 +59,7 @@ def main() -> None:
         if path.is_file():
             path.unlink()
             logging.info("Removed redundant HF artifact: %s", path.name)
+    sync_bundled_ref_audio(local_dir)
     logging.info("Done. Checkpoint + audio/ ready at %s", local_dir)
 
 
