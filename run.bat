@@ -71,10 +71,7 @@ if not exist "models\onnx\text_encoder_int4.onnx" (
     echo [CANH BAO] Chua thay models\onnx\ — chon [3] Export ONNX truoc.
     echo.
 )
-echo ------------------------------------------------------------
-echo uv sync --extra onnx
-echo ------------------------------------------------------------
-uv sync --extra onnx
+call :check_onnx_deps
 if errorlevel 1 goto :fail
 echo [DANG CHAY] ONNX Gradio — http://127.0.0.1:7861
 echo.
@@ -82,10 +79,7 @@ uv run vizipvoice-onnx-local %*
 goto :done
 
 :run_export
-echo ------------------------------------------------------------
-echo uv sync --extra export
-echo ------------------------------------------------------------
-uv sync --extra export
+call :check_export_deps
 if errorlevel 1 goto :fail
 if not exist "models\ViZipvoice\config.json" (
     echo [CANH BAO] Chua thay models\ViZipvoice — can checkpoint de export.
@@ -113,6 +107,7 @@ if %EXIT_CODE% neq 0 (
     echo Goi y:
     echo   - Chua setup: chay setup.bat
     echo   - Port bi chiem: run.bat — chon lai menu, them --port 7863
+    echo   - DLL Access denied: dong Gradio/Python cu, roi chay setup.bat
     echo.
     pause
     exit /b %EXIT_CODE%
@@ -122,6 +117,24 @@ echo [XONG] Ung dung da dong binh thuong.
 echo ============================================================
 pause
 exit /b 0
+
+:check_onnx_deps
+uv run python -c "import onnxruntime" >nul 2>&1
+if not errorlevel 1 exit /b 0
+echo [LOI] Chua cai ONNX dependencies ^(onnxruntime^).
+echo       Chay setup.bat de cai --extra onnx.
+echo       Neu setup.bat bao "Access is denied" tren file .dll:
+echo         dong tat ca cua so Gradio/Python cu roi chay setup.bat lai.
+exit /b 1
+
+:check_export_deps
+uv run python -c "import onnx, onnxruntime" >nul 2>&1
+if not errorlevel 1 exit /b 0
+echo [LOI] Chua cai export dependencies ^(onnx, onnxruntime^).
+echo       Chay setup.bat de cai --extra export.
+echo       Neu setup.bat bao "Access is denied" tren file .dll:
+echo         dong tat ca cua so Gradio/Python cu roi chay setup.bat lai.
+exit /b 1
 
 :fail
 echo [LOI] run.bat that bai.

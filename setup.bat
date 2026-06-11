@@ -46,6 +46,8 @@ if /i "%SETUP_MODE%"=="gpu" (
     echo cpu>"%CD%\.install_mode"
     echo cpu>"%CD%\.install_mode_pytorch"
     echo cpu>"%CD%\.install_mode_onnx"
+    call :install_onnx_cpu
+    if errorlevel 1 goto :fail
 )
 
 echo.
@@ -111,13 +113,24 @@ uv run python -c "import torch; print('torch', torch.__version__); print('cuda a
 if errorlevel 1 exit /b 1
 exit /b 0
 
+:install_onnx_cpu
+echo.
+echo ------------------------------------------------------------
+echo CPU — ONNX Runtime + export deps...
+echo ------------------------------------------------------------
+uv sync --extra onnx --extra export
+if errorlevel 1 exit /b 1
+uv run python -c "import onnxruntime as ort; print('onnxruntime OK'); print('EPs', ort.get_available_providers())"
+if errorlevel 1 exit /b 1
+exit /b 0
+
 :install_onnx_gpu
 echo.
 echo ------------------------------------------------------------
 echo GPU [2/2] ONNX Runtime GPU + CUDA DLLs...
 echo ------------------------------------------------------------
 echo gpu>"%CD%\.install_mode_onnx"
-uv sync --extra onnx
+uv sync --extra onnx --extra export
 if errorlevel 1 exit /b 1
 uv pip uninstall onnxruntime 2>nul
 uv pip install -r requirements-onnx-gpu.txt
