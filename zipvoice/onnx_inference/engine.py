@@ -221,6 +221,7 @@ class ViZipVoiceOnnxTTS:
 
     def _decode_mel(self, pred_features: torch.Tensor, feat_scale: float) -> torch.Tensor:
         pred_mel = pred_features / feat_scale
+        mel_frames = int(pred_mel.shape[1])
         if self._vocos_session is not None:
             wav = decode_with_vocos_onnx(self._vocos_session, pred_mel)
         else:
@@ -230,6 +231,10 @@ class ViZipVoiceOnnxTTS:
             wav = vocoder.decode(pred).squeeze(1).clamp(-1, 1)
         if wav.ndim == 1:
             wav = wav.unsqueeze(0)
+        # Vocoder ONNX (librosa ISTFT) may overshoot; PyTorch trims mel frames before decode.
+        max_samples = mel_frames * 256
+        if wav.shape[-1] > max_samples:
+            wav = wav[..., :max_samples]
         return wav
 
     def _synthesize_chunk(

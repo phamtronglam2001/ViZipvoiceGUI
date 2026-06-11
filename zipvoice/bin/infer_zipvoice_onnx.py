@@ -354,6 +354,28 @@ class OnnxModel:
         return torch.from_numpy(out[0])
 
 
+def predict_generated_features_len(
+    prompt_features_len: int,
+    prompt_tokens_len: int,
+    target_tokens_len: int,
+    speed: float,
+) -> int:
+    """Match ZipVoice.forward_text_inference_ratio_duration / sample() trimming."""
+    if target_tokens_len <= 0 or prompt_tokens_len <= 0:
+        return 0
+    return int(
+        torch.ceil(
+            torch.tensor(
+                prompt_features_len
+                / prompt_tokens_len
+                * target_tokens_len
+                / speed,
+                dtype=torch.float32,
+            )
+        ).item()
+    )
+
+
 def sample(
     model: OnnxModel,
     tokens: List[List[int]],
@@ -416,8 +438,16 @@ def sample(
         )
         x = x + v * (timesteps[step + 1] - timesteps[step])
 
-    x = x[:, prompt_features_len.item() :, :]
-    return x
+    prompt_len = int(prompt_features_len.item())
+    speed_value = float(speed.item()) if isinstance(speed, Tensor) else float(speed)
+    gen_len = predict_generated_features_len(
+        prompt_len,
+        int(prompt_tokens.shape[1]),
+        int(tokens.shape[1]),
+        speed_value,
+    )
+    gen_len = min(gen_len, max(0, x.shape[1] - prompt_len))
+    return x[:, prompt_len : prompt_len + gen_len, :]
 
 
 # Copied from zipvoice/bin/infer_zipvoice.py, but call an external sample function
