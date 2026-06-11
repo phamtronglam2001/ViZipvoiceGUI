@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import subprocess
 import time
 import uuid
@@ -39,13 +38,9 @@ DEFAULT_MODEL_DIR = REPO_ROOT / "models" / "ViZipvoice"
 OUTPUT_DIR = REPO_ROOT / "output" / "gradio"
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
 PREFERRED_REFS = ["Đinh-Quyết", "Nhã-Uyên", "MC"]
-MP3_BITRATE_CHOICES = ("32 kbps (mặc định)", "128 kbps")
-FFMPEG_CANDIDATES = (
-    REPO_ROOT / "ffmpeg" / "ffmpeg.exe",
-    REPO_ROOT / "ffmpeg" / "bin" / "ffmpeg.exe",
-    REPO_ROOT / "ffmpeg" / "ffmpeg",
-    REPO_ROOT / "ffmpeg" / "bin" / "ffmpeg",
-)
+MP3_BITRATE_CHOICES = ("64 kbps (mặc định)", "128 kbps", "256 kbps")
+DEFAULT_FFMPEG_DIR = "ffmpeg"
+FFMPEG_EXE_NAMES = ("ffmpeg.exe", "ffmpeg")
 
 DEMO_TEXT = (
     "Chiến tranh luôn là một chủ đề nặng nề, nhưng cũng rất cần được nhắc đến "
@@ -117,16 +112,56 @@ def load_ref_prompts(model_dir: str) -> tuple[RefPrompt, ...]:
     return tuple(prompts)
 
 
-def resolve_ffmpeg_path() -> Optional[Path]:
-    for candidate in FFMPEG_CANDIDATES:
+def default_ffmpeg_dir_str() -> str:
+    env = os.getenv("VIZIPVOICE_FFMPEG_DIR", "").strip()
+    return env or DEFAULT_FFMPEG_DIR
+
+
+def resolve_ffmpeg_dir(raw: str) -> Path:
+    text = (raw or "").strip() or DEFAULT_FFMPEG_DIR
+    path = Path(text)
+    if not path.is_absolute():
+        path = (REPO_ROOT / path).resolve()
+    return path
+
+
+def _ffmpeg_candidates_in(base: Path) -> tuple[Path, ...]:
+    if base.is_file() and base.name.lower() in {n.lower() for n in FFMPEG_EXE_NAMES}:
+        return (base,)
+    if not base.is_dir():
+        return ()
+
+    names = FFMPEG_EXE_NAMES
+    return (
+        base / names[0],
+        base / names[1],
+        base / "bin" / names[0],
+        base / "bin" / names[1],
+    )
+
+
+def resolve_ffmpeg_path(ffmpeg_dir_raw: str = "") -> Optional[Path]:
+    """Find ffmpeg.exe under a user-chosen folder (relative to repo or absolute)."""
+    base = resolve_ffmpeg_dir(ffmpeg_dir_raw)
+    for candidate in _ffmpeg_candidates_in(base):
         if candidate.is_file():
-            return candidate
-    found = shutil.which("ffmpeg")
-    return Path(found) if found else None
+            return candidate.resolve()
+    return None
 
 
-def expected_ffmpeg_hint() -> str:
-    return str(REPO_ROOT / "ffmpeg" / "ffmpeg.exe")
+def ffmpeg_available(ffmpeg_dir_raw: str = "") -> bool:
+    return resolve_ffmpeg_path(ffmpeg_dir_raw) is not None
+
+
+def format_ffmpeg_status(ffmpeg_dir_raw: str) -> str:
+    exe = resolve_ffmpeg_path(ffmpeg_dir_raw)
+    folder = resolve_ffmpeg_dir(ffmpeg_dir_raw)
+    if exe is not None:
+        return f"**ffmpeg:** `{exe}`"
+    return (
+        f"**ffmpeg:** không tìm thấy trong `{folder}` "
+        f"(cần `ffmpeg.exe` hoặc `bin/ffmpeg.exe`) — chỉ xuất WAV."
+    )
 
 
 def parse_device_choice(choice: str) -> Optional[str]:
@@ -136,18 +171,14 @@ def parse_device_choice(choice: str) -> Optional[str]:
 
 
 def parse_mp3_bitrate(choice: str) -> int:
+    if "256" in choice:
+        return 256
     if "128" in choice:
         return 128
-    return 32
+    return 64
 
 
-def wav_to_mp3(wav_path: Path, bitrate_kbps: int) -> Path:
-    ffmpeg = resolve_ffmpeg_path()
-    if ffmpeg is None:
-        raise gr.Error(
-            f"Không tìm thấy ffmpeg. Cần có tại `{expected_ffmpeg_hint()}` "
-            "hoặc cài ffmpeg trên PATH."
-        )
+def wav_to_mp3(wav_path: Path, bitrate_kbps: int, ffmpeg: Path) -> Path:
 
     mp3_path = wav_path.with_suffix(".mp3")
     cmd = [
@@ -261,7 +292,7 @@ def generate(
     device_choice: str,
     perf_num_threads: int,
     use_fp16: bool,
-    export_mp3: bool,
+    ffmpeg_dir: str,
     mp3_bitrate_choice: str,
     num_step: int,
     guidance_scale: float,
@@ -277,7 +308,7 @@ def generate(
     silence_ms: int,
     fade_in_ms: int,
     fade_out_ms: int,
-) -> tuple[str, Optional[str], str]:
+) -> tuple[Optional[str], str]:
     if not text or not text.strip():
         raise gr.Error("Nhập text cần sinh trước khi chạy inference.")
 
@@ -322,10 +353,25 @@ def generate(
         raise gr.Error(str(exc)) from exc
 
     elapsed = time.time() - start
-    mp3_path: Optional[str] = None
-    if export_mp3:
-        mp3_file = wav_to_mp3(output_path, parse_mp3_bitrate(mp3_bitrate_choice))
-        mp3_path = str(mp3_file)
+    ffmpeg = resolve_ffmpeg_path(ffmpeg_dir)
+    deliver_path: str
+    if ffmpeg is not None:
+        mp3_file = wav_to_mp3(
+            output_path,
+            parse_mp3_bitrate(mp3_bitrate_choice),
+            ffmpeg,
+        )
+        try:
+            output_path.unlink(missing_ok=True)
+        except OSError:
+            logging.warning("Could not remove temp WAV %s", output_path)
+        deliver_path = str(mp3_file)
+        output_format = "mp3"
+        output_bitrate_kbps = parse_mp3_bitrate(mp3_bitrate_choice)
+    else:
+        deliver_path = str(output_path)
+        output_format = "wav"
+        output_bitrate_kbps = None
 
     status = {
         "checkpoint": Path(tts.checkpoint_path).name,
@@ -341,11 +387,26 @@ def generate(
         "rtf": round(metrics.get("rtf", 0.0), 4),
         "elapsed_seconds": round(elapsed, 3),
         "segment_settings": metrics.get("segment_settings", []),
+        "output_format": output_format,
+        "output_path": deliver_path,
     }
-    if mp3_path:
-        status["mp3_path"] = mp3_path
-        status["mp3_bitrate_kbps"] = parse_mp3_bitrate(mp3_bitrate_choice)
-    return str(output_path), mp3_path, json.dumps(status, ensure_ascii=False, indent=2)
+    if output_bitrate_kbps is not None:
+        status["mp3_bitrate_kbps"] = output_bitrate_kbps
+    if ffmpeg is not None:
+        status["ffmpeg"] = str(ffmpeg)
+    else:
+        status["ffmpeg_dir"] = str(resolve_ffmpeg_dir(ffmpeg_dir))
+    return deliver_path, json.dumps(status, ensure_ascii=False, indent=2)
+
+
+def refresh_ffmpeg_ui(ffmpeg_dir: str) -> tuple:
+    exe = resolve_ffmpeg_path(ffmpeg_dir)
+    has_ffmpeg = exe is not None
+    return (
+        gr.update(visible=has_ffmpeg),
+        gr.update(label="Output (MP3)" if has_ffmpeg else "Output (WAV)"),
+        format_ffmpeg_status(ffmpeg_dir),
+    )
 
 
 def preview_normalizer(text: str, norm_pipeline_raw: str, enabled: bool) -> str:
@@ -360,6 +421,9 @@ def build_app(model_dir: Path) -> gr.Blocks:
     choices = [item.label for item in load_ref_prompts(model_dir_str)]
     default_pipeline_str = ", ".join(DEFAULT_PIPELINE)
     norm_choices = [key for key in STEP_LABELS if key != "none"]
+    default_ffmpeg_dir = default_ffmpeg_dir_str()
+    has_ffmpeg = ffmpeg_available(default_ffmpeg_dir)
+    output_label = "Output (MP3)" if has_ffmpeg else "Output (WAV)"
 
     with gr.Blocks(title="ViZipVoice Local") as demo:
         gr.Markdown(
@@ -418,16 +482,24 @@ def build_app(model_dir: Path) -> gr.Blocks:
                                 label="FP16 trên CUDA (nhanh hơn, tắt nếu lỗi GPU)",
                             )
 
-                        with gr.Accordion("Xuất MP3", open=False):
-                            export_mp3 = gr.Checkbox(
-                                value=False,
-                                label="Xuất MP3 sau khi sinh WAV",
+                        with gr.Accordion("Xuất MP3 / ffmpeg", open=has_ffmpeg):
+                            ffmpeg_dir = gr.Textbox(
+                                value=default_ffmpeg_dir,
+                                label="Thư mục ffmpeg",
+                                info=(
+                                    "Tuyệt đối hoặc tương đối repo "
+                                    "(vd. ffmpeg, ffmpeg/bin, D:/tools/ffmpeg)"
+                                ),
+                            )
+                            ffmpeg_status = gr.Markdown(
+                                format_ffmpeg_status(default_ffmpeg_dir)
                             )
                             mp3_bitrate = gr.Dropdown(
                                 choices=list(MP3_BITRATE_CHOICES),
                                 value=MP3_BITRATE_CHOICES[0],
                                 label="Bitrate MP3",
-                                info="24 kHz mono qua ffmpeg",
+                                info="24 kHz mono",
+                                visible=has_ffmpeg,
                             )
 
                         with gr.Accordion("Advanced", open=False):
@@ -463,14 +535,18 @@ def build_app(model_dir: Path) -> gr.Blocks:
                                 fade_out_ms = gr.Slider(0, 500, value=80, step=10, label="Fade out ms")
 
                 with gr.Row():
-                    output_audio = gr.Audio(type="filepath", label="Output (WAV)")
-                    output_mp3 = gr.Audio(type="filepath", label="Output (MP3)")
+                    output_audio = gr.Audio(type="filepath", label=output_label)
                     status = gr.Textbox(lines=12, label="Status")
 
                 txt_upload.change(
                     fn=load_txt_for_preview,
                     inputs=[txt_upload],
                     outputs=[text],
+                )
+                ffmpeg_dir.change(
+                    fn=refresh_ffmpeg_ui,
+                    inputs=[ffmpeg_dir],
+                    outputs=[mp3_bitrate, output_audio, ffmpeg_status],
                 )
                 ref_label.change(
                     fn=lambda label: select_ref(model_dir_str, label),
@@ -487,7 +563,7 @@ def build_app(model_dir: Path) -> gr.Blocks:
                         device_choice,
                         perf_num_threads,
                         use_fp16,
-                        export_mp3,
+                        ffmpeg_dir,
                         mp3_bitrate,
                         num_step,
                         guidance_scale,
@@ -504,7 +580,7 @@ def build_app(model_dir: Path) -> gr.Blocks:
                         fade_in_ms,
                         fade_out_ms,
                     ],
-                    outputs=[output_audio, output_mp3, status],
+                    outputs=[output_audio, status],
                 )
 
             with gr.Tab("Text Normalizer"):
