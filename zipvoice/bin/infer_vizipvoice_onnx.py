@@ -153,7 +153,7 @@ def main() -> None:
     if not onnx_dir.is_dir():
         raise FileNotFoundError(
             f"ONNX dir không tồn tại: {onnx_dir}\n"
-            "Export trước (run_export_gui.bat) hoặc set VIZIPVOICE_ONNX_DIR."
+            "Export trước (run.bat → [3]) hoặc set VIZIPVOICE_ONNX_DIR."
         )
     vocos_path = resolve_vocoder_onnx(onnx_dir, args.vocoder_onnx)
 

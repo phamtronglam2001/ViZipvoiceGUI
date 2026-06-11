@@ -226,6 +226,14 @@ def load_txt_for_preview(file_path: Optional[str]) -> str:
         raise gr.Error(f"Không mở được file TXT: {exc}") from exc
 
 
+def _load_tts(**kwargs) -> ViZipVoiceTTS:
+    model_dir = kwargs.pop("model_dir", None)
+    repo_id = kwargs.pop("repo_id", DEFAULT_REPO_ID)
+    if model_dir is not None:
+        return ViZipVoiceTTS(model_dir=model_dir, **kwargs)
+    return ViZipVoiceTTS(repo_id=repo_id, **kwargs)
+
+
 @lru_cache(maxsize=8)
 def get_tts(
     model_dir: str,
@@ -249,7 +257,18 @@ def get_tts(
             num_threads,
             use_fp16,
         )
-        return ViZipVoiceTTS(model_dir=path, **kwargs)
+        try:
+            return _load_tts(model_dir=path, **kwargs)
+        except Exception as exc:
+            if device_choice in ("auto", "cuda") and (
+                device is None or str(device) != "cpu"
+            ):
+                logging.warning(
+                    "GPU load failed (%s) — retrying on CPU", exc
+                )
+                kwargs["device"] = "cpu"
+                return _load_tts(model_dir=path, **kwargs)
+            raise
 
     logging.info(
         "Loading ViZipVoice from Hugging Face %s (device=%s, threads=%s, fp16=%s)",
@@ -258,7 +277,16 @@ def get_tts(
         num_threads,
         use_fp16,
     )
-    return ViZipVoiceTTS(repo_id=DEFAULT_REPO_ID, **kwargs)
+    try:
+        return _load_tts(**kwargs)
+    except Exception as exc:
+        if device_choice in ("auto", "cuda") and (
+            device is None or str(device) != "cpu"
+        ):
+            logging.warning("GPU load failed (%s) — retrying on CPU", exc)
+            kwargs["device"] = "cpu"
+            return _load_tts(**kwargs)
+        raise
 
 
 def refs_by_label(model_dir: str) -> dict[str, RefPrompt]:

@@ -29,12 +29,34 @@ CHECKPOINT_RE = re.compile(r"^checkpoint-(\d+)\.pt$")
 SENTENCE_SPLIT_PATTERN = re.compile(r"[^.?？。]+(?:[.?？。]+|$)", re.S)
 def _resolve_device(device: Optional[Union[str, torch.device]] = None) -> torch.device:
     if device is not None:
-        return torch.device(device)
+        resolved = torch.device(device)
+        if resolved.type == "cuda" and not torch.cuda.is_available():
+            logging.warning("CUDA requested but unavailable — using CPU")
+            return torch.device("cpu")
+        return resolved
     if torch.cuda.is_available():
         return torch.device("cuda", 0)
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
+
+
+def _safe_to_device(module: torch.nn.Module, device: torch.device) -> torch.device:
+    try:
+        module.to(device)
+        if device.type == "cuda":
+            torch.zeros(1, device=device)
+        return device
+    except Exception as exc:
+        if device.type == "cpu":
+            raise
+        logging.warning(
+            "Failed to load model on %s (%s) — falling back to CPU",
+            device,
+            exc,
+        )
+        module.to("cpu")
+        return torch.device("cpu")
 
 
 def _download_model_files(
@@ -366,12 +388,14 @@ class ViZipVoiceTTS:
             pad_id=self.tokenizer.pad_id,
         )
         self._load_checkpoint()
-        self.model.to(self.device)
+        self.device = _safe_to_device(self.model, self.device)
+        self.use_fp16 = bool(use_fp16 and self.device.type == "cuda")
         self.model.eval()
 
         self.feature_extractor = VocosFbank()
         self.vocoder = get_vocoder(str(vocoder_path) if vocoder_path else None)
-        self.vocoder.to(self.device)
+        self.device = _safe_to_device(self.vocoder, self.device)
+        self.use_fp16 = bool(use_fp16 and self.device.type == "cuda")
         self.vocoder.eval()
         self.sampling_rate = int(self.model_config["feature"]["sampling_rate"])
 

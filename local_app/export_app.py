@@ -75,7 +75,7 @@ def build_app() -> gr.Blocks:
             f"{AUTHOR_LINE}\n\n"
             f"_{FORK_PURPOSE}_\n\n"
             "Export **ZipVoice** (`text_encoder_int4`, `fm_decoder_int4`) và **Vocos** "
-            "(`mel_spec_24khz.onnx`). Test bằng `run_onnx_local.bat` hoặc "
+            "(`mel_spec_24khz.onnx`). Test bằng `run.bat` → ONNX hoặc "
             "`uv run python -m zipvoice.bin.infer_vizipvoice_onnx`.\n\n"
             "**Lưu ý:** ViZipVoice dùng character tokenizer — không tương thích "
             "ZipVoice-Vietnamese-ONNX-GUI (Espeak/phoneme).\n\n"

@@ -1,0 +1,7 @@
+# GPU ONNX Runtime (mutually exclusive with onnxruntime CPU)
+# GPU ONNX extras — installed by setup.bat when user picks [2] GPU
+onnxruntime-gpu>=1.18.0,<1.24
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+nvidia-cuda-runtime-cu12
+nvidia-cufft-cu12

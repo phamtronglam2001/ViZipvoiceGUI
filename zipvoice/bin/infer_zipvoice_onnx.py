@@ -281,6 +281,7 @@ class OnnxModel:
         providers: list[str] | None = None,
     ):
         from zipvoice.onnx_inference.runtime import (
+            create_inference_session,
             default_onnx_threads,
             make_session_options,
             onnx_providers,
@@ -296,14 +297,14 @@ class OnnxModel:
         self.init_fm_decoder(fm_decoder_path)
 
     def init_text_encoder(self, model_path: str):
-        self.text_encoder = ort.InferenceSession(
+        self.text_encoder = create_inference_session(
             model_path,
             sess_options=self.session_opts,
             providers=self.providers,
         )
 
     def init_fm_decoder(self, model_path: str):
-        self.fm_decoder = ort.InferenceSession(
+        self.fm_decoder = create_inference_session(
             model_path,
             sess_options=self.session_opts,
             providers=self.providers,

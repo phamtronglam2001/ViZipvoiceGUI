@@ -24,6 +24,8 @@ from local_app.app import (
     select_ref,
 )
 from zipvoice.onnx_inference.engine import get_onnx_tts
+from zipvoice.onnx_inference.providers import predict_runtime_device_summary
+from zipvoice.onnx_inference.runtime import default_onnx_threads
 from zipvoice.tokenizer.vi_normalizer import DEFAULT_PIPELINE, STEP_LABELS, format_pipeline_label
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +34,16 @@ DEFAULT_VOCODER_ONNX = REPO_ROOT / "models" / "vocoder" / "mel_spec_24khz.onnx"
 OUTPUT_DIR = REPO_ROOT / "output" / "gradio_onnx"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+def default_use_onnx_gpu() -> bool:
+    env = os.environ.get("ZIPVOICE_ONNX_GPU", "").strip().lower()
+    if env in {"1", "true", "yes"}:
+        return True
+    marker = REPO_ROOT / ".install_mode_onnx"
+    if marker.is_file() and marker.read_text(encoding="utf-8").strip().lower() == "gpu":
+        return True
+    return False
 
 
 def resolve_onnx_dir() -> Path:
@@ -72,6 +84,9 @@ def generate(
     onnx_dir: str,
     use_int4: bool,
     vocoder_onnx: str,
+    use_onnx_gpu: bool,
+    force_cpu: bool,
+    onnx_threads: int,
     ref_label: str,
     prompt_audio: str | None,
     prompt_text: str,
@@ -109,7 +124,15 @@ def generate(
 
     start = time.time()
     try:
-        tts = get_onnx_tts(str(onnx_path.resolve()), bool(use_int4), vocoder)
+        threads = None if int(onnx_threads) <= 0 else int(onnx_threads)
+        tts = get_onnx_tts(
+            str(onnx_path.resolve()),
+            bool(use_int4),
+            vocoder,
+            num_threads=threads,
+            use_gpu=bool(use_onnx_gpu),
+            force_cpu=bool(force_cpu),
+        )
         metrics = tts.synthesize(
             prompt_wav=prompt_wav,
             prompt_text=final_prompt_text,
@@ -139,6 +162,10 @@ def generate(
         "backend": "ONNX",
         "onnx_dir": str(onnx_path),
         "use_int4": bool(use_int4),
+        "use_gpu": bool(use_onnx_gpu),
+        "force_cpu": bool(force_cpu),
+        "ort_threads": metrics.get("ort_threads"),
+        "provider_label": metrics.get("provider_label"),
         "vocoder_onnx": metrics.get("vocoder_onnx"),
         "ref_model_dir": model_dir,
         "prompt": Path(prompt_wav).name,
@@ -150,6 +177,13 @@ def generate(
         "segment_settings": metrics.get("segment_settings", []),
     }
     return str(output_path), json.dumps(status, ensure_ascii=False, indent=2)
+
+
+def refresh_onnx_perf_ui(use_onnx_gpu: bool, force_cpu: bool) -> str:
+    return predict_runtime_device_summary(
+        bool(use_onnx_gpu),
+        force_cpu=bool(force_cpu),
+    )
 
 
 def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
@@ -172,6 +206,43 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
         )
 
         with gr.Tabs():
+            with gr.Tab("Hiệu năng"):
+                gr.Markdown(
+                    "Tối ưu ONNX Runtime (tham khảo ZipVoice-Vietnamese-ONNX-GUI). "
+                    "GPU: `setup.bat` → chọn [2]. Env: `ZIPVOICE_ONNX_THREADS`, "
+                    "`ZIPVOICE_FORCE_CPU=1`. Không có GPU/DLL → tự fallback CPU."
+                )
+                with gr.Row():
+                    use_onnx_gpu = gr.Checkbox(
+                        value=default_use_onnx_gpu(),
+                        label="GPU (CUDA / DirectML)",
+                        info="Giữ workers=1 khi dùng GPU",
+                    )
+                    force_cpu = gr.Checkbox(
+                        value=False,
+                        label="Ép CPU",
+                    )
+                onnx_threads = gr.Slider(
+                    0,
+                    min(16, os.cpu_count() or 8),
+                    value=0,
+                    step=1,
+                    label="ORT threads (0 = tự động)",
+                    info=f"Mặc định: {default_onnx_threads()}",
+                )
+                runtime_device = gr.Textbox(
+                    label="Thiết bị ONNX Runtime",
+                    value=predict_runtime_device_summary(default_use_onnx_gpu()),
+                    interactive=False,
+                    lines=2,
+                )
+                for ctrl in (use_onnx_gpu, force_cpu):
+                    ctrl.change(
+                        fn=refresh_onnx_perf_ui,
+                        inputs=[use_onnx_gpu, force_cpu],
+                        outputs=[runtime_device],
+                    )
+
             with gr.Tab("TTS (ONNX)"):
                 with gr.Row():
                     with gr.Column(scale=1):
@@ -255,6 +326,9 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
                         onnx_model_dir,
                         use_int4,
                         vocoder_onnx,
+                        use_onnx_gpu,
+                        force_cpu,
+                        onnx_threads,
                         ref_label,
                         prompt_audio,
                         prompt_text,
@@ -329,7 +403,7 @@ def main() -> None:
     if not onnx_dir.is_dir():
         raise SystemExit(
             f"ONNX dir không tồn tại: {onnx_dir}\n"
-            "Export trước: run_export_gui.bat hoặc uv run vizipvoice-export-onnx ..."
+            "Export trước: run.bat → [3] hoặc uv run vizipvoice-export-onnx ..."
         )
 
     prompts = load_ref_prompts(str(model_dir))

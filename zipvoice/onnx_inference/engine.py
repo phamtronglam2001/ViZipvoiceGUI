@@ -20,10 +20,15 @@ from zipvoice.bin.infer_zipvoice_onnx import (
     onnx_prompt_duration_mismatch,
     sample,
 )
+from zipvoice.onnx_inference.providers import (
+    provider_status_message,
+    session_active_provider,
+)
 from zipvoice.onnx_inference.runtime import (
-    default_onnx_threads,
+    create_inference_session,
     make_session_options,
     onnx_providers,
+    resolve_onnx_threads,
 )
 from zipvoice.tokenizer.tokenizer import SimpleTokenizer
 from zipvoice.tokenizer.vi_normalizer import DEFAULT_PIPELINE
@@ -121,14 +126,23 @@ class ViZipVoiceOnnxTTS:
         vocoder_onnx: Union[str, Path, None] = None,
         vocoder_path: str | None = None,
         num_threads: int | None = None,
+        use_gpu: bool = False,
+        force_cpu: bool = False,
     ) -> None:
         self.onnx_dir = Path(onnx_dir).resolve()
         self.use_int4 = bool(use_int4)
         self.vocoder_path = vocoder_path
-        self.num_threads = (
-            default_onnx_threads() if num_threads is None else max(1, int(num_threads))
+        self.use_gpu = bool(use_gpu)
+        self.force_cpu = bool(force_cpu)
+        self.num_threads = resolve_onnx_threads(num_threads)
+        self.providers = onnx_providers(
+            use_gpu=self.use_gpu,
+            force_cpu=self.force_cpu,
         )
-        self.providers = onnx_providers()
+        self.provider_label = provider_status_message(
+            self.use_gpu,
+            force_cpu=self.force_cpu,
+        )
 
         token_file = self.onnx_dir / "tokens.txt"
         if not token_file.is_file():
@@ -153,10 +167,12 @@ class ViZipVoiceOnnxTTS:
             num_thread=self.num_threads,
             providers=self.providers,
         )
+        active_te = session_active_provider(self.onnx_model.text_encoder)
         logger.info(
-            "ZipVoice ONNX | threads=%d | providers=%s | int4=%s",
+            "ZipVoice ONNX | threads=%d | %s | text_encoder=%s | int4=%s",
             self.num_threads,
-            self.providers[0],
+            self.provider_label,
+            active_te,
             self.use_int4,
         )
 
@@ -164,7 +180,7 @@ class ViZipVoiceOnnxTTS:
         self._vocos_session: ort.InferenceSession | None = None
         self._vocos_path = vocos_path
         if vocos_path is not None:
-            self._vocos_session = ort.InferenceSession(
+            self._vocos_session = create_inference_session(
                 str(vocos_path),
                 sess_options=make_session_options(self.num_threads),
                 providers=self.providers,
@@ -447,22 +463,30 @@ class ViZipVoiceOnnxTTS:
             "segment_settings": segment_settings,
             "onnx_dir": str(self.onnx_dir),
             "use_int4": self.use_int4,
+            "use_gpu": self.use_gpu,
+            "force_cpu": self.force_cpu,
+            "provider_label": self.provider_label,
+            "ort_threads": self.num_threads,
             "vocoder_onnx": str(self._vocos_path) if self._vocos_path else None,
             "max_duration": float(max_duration),
             "remove_long_sil": bool(remove_long_sil),
         }
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=8)
 def get_onnx_tts(
     onnx_dir: str,
     use_int4: bool,
     vocoder_onnx: str | None,
     num_threads: int | None = None,
+    use_gpu: bool = False,
+    force_cpu: bool = False,
 ) -> ViZipVoiceOnnxTTS:
     return ViZipVoiceOnnxTTS(
         onnx_dir=onnx_dir,
         use_int4=use_int4,
         vocoder_onnx=vocoder_onnx,
         num_threads=num_threads,
+        use_gpu=use_gpu,
+        force_cpu=force_cpu,
     )
