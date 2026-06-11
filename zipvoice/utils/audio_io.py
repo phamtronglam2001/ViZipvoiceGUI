@@ -41,8 +41,10 @@ def save_audio(path: str | Path, waveform: torch.Tensor, sample_rate: int) -> No
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    wav = waveform.detach().cpu()
+    wav = waveform.detach().cpu().float()
+    while wav.ndim > 2:
+        wav = wav.squeeze(0)
     if wav.ndim == 1:
         wav = wav.unsqueeze(0)
     array = wav.numpy().T
-    sf.write(str(path), array, int(sample_rate))
+    sf.write(str(path), array, int(sample_rate), subtype="PCM_16")

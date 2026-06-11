@@ -26,7 +26,6 @@ from zipvoice.tokenizer.vi_normalizer import DEFAULT_PIPELINE
 from zipvoice.utils.feature import VocosFbank
 from zipvoice.utils.infer import (
     add_punctuation,
-    batchify_tokens,
     chunk_tokens_punctuation,
     cross_fade_concat,
     load_prompt_wav,
@@ -223,11 +222,15 @@ class ViZipVoiceOnnxTTS:
     def _decode_mel(self, pred_features: torch.Tensor, feat_scale: float) -> torch.Tensor:
         pred_mel = pred_features / feat_scale
         if self._vocos_session is not None:
-            return decode_with_vocos_onnx(self._vocos_session, pred_mel).squeeze(0)
-        vocoder = get_vocoder(self.vocoder_path)
-        vocoder.eval()
-        pred = pred_mel.permute(0, 2, 1)
-        return vocoder.decode(pred).squeeze(1).squeeze(0)
+            wav = decode_with_vocos_onnx(self._vocos_session, pred_mel)
+        else:
+            vocoder = get_vocoder(self.vocoder_path)
+            vocoder.eval()
+            pred = pred_mel.permute(0, 2, 1)
+            wav = vocoder.decode(pred).squeeze(1).clamp(-1, 1)
+        if wav.ndim == 1:
+            wav = wav.unsqueeze(0)
+        return wav
 
     def _synthesize_chunk(
         self,
@@ -265,7 +268,11 @@ class ViZipVoiceOnnxTTS:
         speed: float,
         max_duration: float,
     ) -> list[list[int]]:
-        """Chunk long text like infer_zipvoice.generate_sentence (punctuation + max_duration batches)."""
+        """Chunk long text in reading order (matches infer_zipvoice_onnx.generate_sentence).
+
+        ONNX runs one chunk per ``sample()`` call, so we must not use ``batchify_tokens``,
+        which sorts chunks by length for batched GPU inference and scrambles concat order.
+        """
         assert self._prompt_tokens is not None
 
         text = add_punctuation(text.strip())
@@ -275,18 +282,7 @@ class ViZipVoiceOnnxTTS:
         token_duration = self._prompt_duration / (max(len(prompt_tokens_str), 1) * speed)
         max_tokens = max(1, int((25 - self._prompt_duration) / max(token_duration, 1e-6)))
         chunked_tokens_str = chunk_tokens_punctuation(tokens_str, max_tokens=max_tokens)
-        chunked_tokens = self.tokenizer.tokens_to_token_ids(chunked_tokens_str)
-
-        token_batches, _index = batchify_tokens(
-            chunked_tokens,
-            max_duration=float(max_duration),
-            prompt_duration=self._prompt_duration,
-            token_duration=token_duration,
-        )
-        flat: list[list[int]] = []
-        for batch in token_batches:
-            flat.extend(batch)
-        return flat or chunked_tokens
+        return self.tokenizer.tokens_to_token_ids(chunked_tokens_str)
 
     def _synthesize_sentence(
         self,
@@ -407,7 +403,7 @@ class ViZipVoiceOnnxTTS:
                 segment_path = segment_dir / f"segment_{index:03d}.wav"
                 from zipvoice.utils.audio_io import save_audio
 
-                save_audio(segment_path, wav.unsqueeze(0), self.sampling_rate)
+                save_audio(segment_path, wav.cpu(), self.sampling_rate)
                 segment_paths.append(segment_path)
                 segment_settings.append(
                     {

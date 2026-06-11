@@ -187,20 +187,27 @@ def cross_fade_concat(
     """
     # Handle edge cases: empty input or single chunk
     if len(chunks) <= 1:
-        return chunks[0] if chunks else torch.tensor([])
+        if not chunks:
+            return torch.tensor([])
+        chunk = chunks[0]
+        return chunk.unsqueeze(0) if chunk.ndim == 1 else chunk
+
+    normalized_chunks = [
+        chunk.unsqueeze(0) if chunk.ndim == 1 else chunk for chunk in chunks
+    ]
 
     # Calculate total fade samples from duration and sample rate
     fade_samples = int(fade_duration * sample_rate)
 
     # Use simple concatenation if fade duration is non-positive
     if fade_samples <= 0:
-        return torch.cat(chunks, dim=-1)
+        return torch.cat(normalized_chunks, dim=-1)
 
     # Initialize final tensor with the first chunk
-    final = chunks[0]
+    final = normalized_chunks[0]
 
     # Iterate through remaining chunks to apply cross-fading
-    for next_chunk in chunks[1:]:
+    for next_chunk in normalized_chunks[1:]:
         # Calculate safe fade length (cannot exceed either chunk's duration)
         k = min(fade_samples, final.shape[-1], next_chunk.shape[-1])
 
@@ -299,7 +306,9 @@ def remove_silence(
         PyTorch tensor with shape (C, T), where C is number of channels
             and T is number of audio samples
     """
-    # Load audio file
+    if audio.ndim == 1:
+        audio = audio.unsqueeze(0)
+
     wave = tensor_to_audiosegment(audio, sampling_rate)
 
     if not only_edge:
@@ -386,31 +395,24 @@ def tensor_to_audiosegment(tensor, sample_rate):
             and T is the time steps
         sample_rate: Audio sample rate
     """
-    # Convert tensor to numpy array
-    audio_np = tensor.cpu().numpy()
+    audio_np = tensor.detach().cpu().numpy()
 
-    # Add channel dimension if single channel
     if audio_np.ndim == 1:
         audio_np = audio_np[np.newaxis, :]
 
-    # Convert to int16 type (common format for pydub)
-    # Assumes tensor values are in [-1, 1] range as floating point
+    num_channels = int(audio_np.shape[0])
+
     audio_np = (audio_np * 32768.0).clip(-32768, 32767).astype(np.int16)
 
-    # Convert to byte stream
-    # For multi-channel audio, pydub requires interleaved format
-    # (e.g., left-right-left-right)
-    if audio_np.shape[0] > 1:
-        # Convert to interleaved format
+    if num_channels > 1:
         audio_np = audio_np.transpose(1, 0).flatten()
     audio_bytes = audio_np.tobytes()
 
-    # Create AudioSegment
     audio_segment = AudioSegment(
         data=audio_bytes,
         sample_width=2,
         frame_rate=sample_rate,
-        channels=tensor.shape[0],
+        channels=num_channels,
     )
 
     return audio_segment
