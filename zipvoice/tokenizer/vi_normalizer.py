@@ -19,11 +19,24 @@ STEP_LABELS: dict[str, str] = {
     "vieneu": "VieNeu (gộp khoảng trắng thừa)",
     "lowercase": "Chuyển chữ thường",
     "strip_quotes": "Bỏ dấu ngoặc kép",
+    "dot_newline": "Chấm + space → xuống dòng",
     "period_break": "Cấu trúc TTS (ngoặc/số+chấm → xuống dòng)",
+    "newline_sentence": "Xuống dòng → ranh giới câu (thêm chấm)",
+    "join_soft_breaks": "Gộp xuống dòng PDF (dòng ngắn, viết thường)",
     "sea_g2p": "sea-g2p NSW (cần pip install sea-g2p)",
 }
 
 DEFAULT_PIPELINE: list[str] = ["soe_vinorm", "spacing"]
+
+# ZipVoice-Vietnamese-ONNX-GUI audiobook pipeline (sea-g2p → … → VieNeu).
+AUDIOBOOK_PRESET_PIPELINE: list[str] = [
+    "sea_g2p",
+    "dot_newline",
+    "period_break",
+    "newline_sentence",
+    "join_soft_breaks",
+    "vieneu",
+]
 
 PUNCTUATION_NO_SPACE_BEFORE = r",.;:!?…%"
 OPENING_QUOTES_AND_BRACKETS = r"\(\[\{«“‘"
@@ -34,6 +47,20 @@ _RE_BRACKET = re.compile(r"[\(\)\[\]\{]")
 _RE_SPACES_AROUND_NL = re.compile(r"[ \t]*\n[ \t]*")
 _RE_MULTI_NL = re.compile(r"\n{2,}")
 _RE_DIGIT_PERIOD = re.compile(r"(\d{1,4})\.(?!\d)\s+")
+_RE_DOT_SPACE = re.compile(r"(?<![0-9])\.\s+")
+_VI_NUM_WORDS = (
+    "một|hai|ba|bốn|tư|năm|sáu|bảy|tám|chín|"
+    "mười|mười một|mười hai|mười ba|mười bốn|mười lăm|"
+    "mười sáu|mười bảy|mười tám|mười chín|"
+    "hai mươi|ba mươi|bốn mươi|năm mươi"
+)
+_RE_WORD_PERIOD = re.compile(
+    rf"\b({_VI_NUM_WORDS})\s*\.\s+",
+    re.IGNORECASE | re.UNICODE,
+)
+_TERMINAL_PUNCT = re.compile(r'[.!?…]["\'""»)\]]*\s*$')
+_RE_LOWERCASE_START = re.compile(r"^[a-zà-ỹ0-9]", re.UNICODE)
+_MAX_SOFT_JOIN_LINE = 120
 
 _sea_g2p_normalizer = None
 
@@ -91,14 +118,75 @@ def _normalize_strip_quotes(text: str) -> str:
     return text.replace('"', "").replace("'", "")
 
 
+def _normalize_dot_newline(text: str) -> str:
+    if not text:
+        return text
+    return _RE_DOT_SPACE.sub(".\n", text)
+
+
 def _normalize_period_break(text: str) -> str:
     if not text or not text.strip():
         return text
     out = _RE_BRACKET.sub("\n", text)
     out = _RE_SPACES_AROUND_NL.sub("\n", out)
-    out = _RE_DIGIT_PERIOD.sub(r"\1.\n", out)
     out = _RE_MULTI_NL.sub("\n", out)
-    return out.strip()
+    out = out.strip()
+    out = _RE_DIGIT_PERIOD.sub(r"\1.\n", out)
+    out = _RE_WORD_PERIOD.sub(lambda m: f"{m.group(1)}.\n", out)
+    return out
+
+
+def _normalize_newline_sentence(text: str) -> str:
+    if not text or not text.strip():
+        return text
+    lines = text.split("\n")
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        stripped = line.rstrip()
+        if not stripped:
+            out.append("")
+            continue
+        if i < len(lines) - 1 and not _TERMINAL_PUNCT.search(stripped):
+            stripped = stripped.rstrip(".") + "."
+        out.append(stripped)
+    return "\n".join(out)
+
+
+def _should_join_soft_break(prev: str, nxt: str) -> bool:
+    if _TERMINAL_PUNCT.search(prev):
+        return False
+    if len(prev) > _MAX_SOFT_JOIN_LINE or len(nxt) > _MAX_SOFT_JOIN_LINE:
+        return False
+    if not _RE_LOWERCASE_START.match(nxt):
+        return False
+    return True
+
+
+def _normalize_join_soft_breaks(text: str) -> str:
+    if not text or "\n" not in text:
+        return text
+    lines = text.split("\n")
+    merged: list[str] = []
+    buf = ""
+    for line in lines:
+        if not line.strip():
+            if buf:
+                merged.append(buf)
+                buf = ""
+            merged.append("")
+            continue
+        piece = line.strip()
+        if not buf:
+            buf = piece
+            continue
+        if _should_join_soft_break(buf, piece):
+            buf = f"{buf} {piece}"
+        else:
+            merged.append(buf)
+            buf = piece
+    if buf:
+        merged.append(buf)
+    return "\n".join(merged)
 
 
 def _strip_sea_g2p_en_tags(text: str) -> str:
@@ -129,7 +217,10 @@ NORMALIZERS: dict[str, NormalizerFn] = {
     "vieneu": _normalize_vieneu,
     "lowercase": _normalize_lowercase,
     "strip_quotes": _normalize_strip_quotes,
+    "dot_newline": _normalize_dot_newline,
     "period_break": _normalize_period_break,
+    "newline_sentence": _normalize_newline_sentence,
+    "join_soft_breaks": _normalize_join_soft_breaks,
     "sea_g2p": _normalize_sea_g2p,
 }
 

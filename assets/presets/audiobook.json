@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "name": "Audiobook",
+  "description": "sea-g2p → … → VieNeu (ZipVoice-Vietnamese-ONNX-GUI)",
+  "norm_pipeline": [
+    "sea_g2p",
+    "dot_newline",
+    "period_break",
+    "newline_sentence",
+    "join_soft_breaks",
+    "vieneu"
+  ],
+  "normalize_vietnamese": true,
+  "split_sentences": true,
+  "remove_long_sil": false,
+  "crossfade_ms": 80,
+  "silence_ms": 350,
+  "fade_in_ms": 20,
+  "fade_out_ms": 80,
+  "num_step": 16,
+  "guidance_scale": 1.0,
+  "speed": 1.0,
+  "t_shift": 0.5,
+  "max_duration": 100,
+  "seed": 666
+}

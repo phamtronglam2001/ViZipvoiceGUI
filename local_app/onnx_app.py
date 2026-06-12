@@ -13,6 +13,12 @@ from pathlib import Path
 import gradio as gr
 
 from local_app.branding import AUTHOR_LINE, FORK_PURPOSE, HF_MODEL_URL, HF_SPACE_URL
+from local_app.presets_io import (
+    BUILTIN_DEFAULT_KEY,
+    on_load_preset,
+    on_save_preset,
+    preset_dropdown_choices,
+)
 from local_app.app import (
     DEMO_TEXT,
     MP3_BITRATE_CHOICES,
@@ -37,6 +43,7 @@ from local_app.ref_audio_bundle import sync_bundled_ref_audio
 from zipvoice.onnx_inference.engine import get_onnx_tts
 from zipvoice.onnx_inference.vocoder_onnx import VOCODER_BASELINE, VOCODER_INT4
 from zipvoice.onnx_inference.providers import predict_runtime_device_summary
+from zipvoice.utils.audio_io import configure_pydub_ffmpeg
 from zipvoice.onnx_inference.runtime import default_onnx_threads
 from zipvoice.tokenizer.vi_normalizer import DEFAULT_PIPELINE, STEP_LABELS, format_pipeline_label
 
@@ -138,6 +145,8 @@ def generate(
 
     output_path = OUTPUT_DIR / f"vizipvoice_onnx_{int(time.time())}_{uuid.uuid4().hex[:8]}.wav"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    configure_pydub_ffmpeg(ffmpeg_dir)
 
     start = time.time()
     try:
@@ -322,6 +331,25 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
                             )
 
                         with gr.Accordion("Advanced", open=False):
+                            _preset_choices = preset_dropdown_choices()
+                            with gr.Row():
+                                preset_dropdown = gr.Dropdown(
+                                    label="Preset",
+                                    choices=_preset_choices,
+                                    value=BUILTIN_DEFAULT_KEY,
+                                    scale=2,
+                                )
+                                preset_save_name = gr.Textbox(
+                                    label="Tên lưu",
+                                    placeholder="vd: sach_g2p",
+                                    scale=2,
+                                )
+                                preset_save_btn = gr.Button(
+                                    "Save preset",
+                                    size="sm",
+                                    scale=1,
+                                )
+                            preset_status = gr.Markdown("")
                             with gr.Row():
                                 num_step = gr.Slider(4, 64, value=16, step=1, label="Steps")
                                 guidance_scale = gr.Slider(
@@ -437,6 +465,49 @@ def build_app(model_dir: Path, onnx_dir: Path) -> gr.Blocks:
             inputs=[ref_label],
             outputs=[prompt_audio, prompt_text],
         )
+        _preset_outputs = [
+            num_step,
+            guidance_scale,
+            speed,
+            t_shift,
+            max_duration,
+            seed,
+            normalize_vietnamese,
+            norm_pipeline_raw,
+            split_sentences,
+            remove_long_sil,
+            crossfade_ms,
+            silence_ms,
+            fade_in_ms,
+            fade_out_ms,
+            preset_status,
+        ]
+        preset_dropdown.change(
+            fn=on_load_preset,
+            inputs=[preset_dropdown],
+            outputs=_preset_outputs,
+        )
+        preset_save_btn.click(
+            fn=on_save_preset,
+            inputs=[
+                preset_save_name,
+                num_step,
+                guidance_scale,
+                speed,
+                t_shift,
+                max_duration,
+                seed,
+                normalize_vietnamese,
+                norm_pipeline_raw,
+                split_sentences,
+                remove_long_sil,
+                crossfade_ms,
+                silence_ms,
+                fade_in_ms,
+                fade_out_ms,
+            ],
+            outputs=[preset_dropdown, preset_status],
+        )
         generate_btn.click(
             fn=lambda *args: generate(model_dir_str, *args),
             inputs=[
@@ -502,6 +573,7 @@ def main() -> None:
         )
 
     sync_bundled_ref_audio(model_dir)
+    configure_pydub_ffmpeg(default_ffmpeg_dir_str())
     load_ref_prompts.cache_clear()
     prompts = load_ref_prompts(str(model_dir))
     allowed = {str(Path(item.audio_path).resolve().parent) for item in prompts}

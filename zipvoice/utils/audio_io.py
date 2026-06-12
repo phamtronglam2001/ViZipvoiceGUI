@@ -2,15 +2,66 @@
 
 from __future__ import annotations
 
+import os
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 import torch
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_FFMPEG_DIR = "ffmpeg"
+_FFMPEG_EXE_NAMES = ("ffmpeg.exe", "ffmpeg")
+
+
+@lru_cache(maxsize=8)
+def _resolve_ffmpeg_exe(ffmpeg_dir_raw: str = "") -> Path | None:
+    env = os.getenv("VIZIPVOICE_FFMPEG_DIR", "").strip()
+    raw = (ffmpeg_dir_raw or env or _DEFAULT_FFMPEG_DIR).strip()
+    base = Path(raw)
+    if not base.is_absolute():
+        base = (_REPO_ROOT / base).resolve()
+
+    if base.is_file() and base.name.lower() in {n.lower() for n in _FFMPEG_EXE_NAMES}:
+        return base.resolve()
+
+    if not base.is_dir():
+        return None
+
+    for name in _FFMPEG_EXE_NAMES:
+        for candidate in (base / name, base / "bin" / name):
+            if candidate.is_file():
+                return candidate.resolve()
+    return None
+
+
+def configure_pydub_ffmpeg(ffmpeg_dir_raw: str = "") -> bool:
+    """Point pydub at bundled/portable ffmpeg + ffprobe (via PATH)."""
+    ffmpeg_exe = _resolve_ffmpeg_exe(ffmpeg_dir_raw)
+    if ffmpeg_exe is None:
+        return False
+
+    bin_dir = str(ffmpeg_exe.parent)
+    ffprobe_exe = ffmpeg_exe.with_name("ffprobe.exe")
+    if not ffprobe_exe.is_file():
+        ffprobe_exe = ffmpeg_exe.with_name("ffprobe")
+    if not ffprobe_exe.is_file():
+        return False
+
+    from pydub import AudioSegment
+
+    AudioSegment.converter = str(ffmpeg_exe)
+
+    path_entries = os.environ.get("PATH", "").split(os.pathsep)
+    if bin_dir not in path_entries:
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    return True
+
 
 def _load_with_pydub(path: str) -> tuple[torch.Tensor, int]:
     from pydub import AudioSegment
 
+    configure_pydub_ffmpeg()
     segment = AudioSegment.from_file(path)
     samples = np.array(segment.get_array_of_samples(), dtype=np.float32)
     if segment.channels > 1:

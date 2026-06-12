@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "Default",
+  "description": "soe-vinorm → spacing (mặc định ViZipVoice)",
+  "norm_pipeline": [
+    "soe_vinorm",
+    "spacing"
+  ],
+  "normalize_vietnamese": true,
+  "split_sentences": true,
+  "remove_long_sil": false,
+  "crossfade_ms": 80,
+  "silence_ms": 180,
+  "fade_in_ms": 20,
+  "fade_out_ms": 80,
+  "num_step": 16,
+  "guidance_scale": 1.0,
+  "speed": 1.0,
+  "t_shift": 0.5,
+  "max_duration": 100,
+  "seed": 666
+}
